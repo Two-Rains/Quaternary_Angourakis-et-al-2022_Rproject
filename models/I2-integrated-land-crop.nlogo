@@ -88,6 +88,8 @@ globals
   ;;;; management
   crop_sugSowingDay                   ; sowing day (day of year)
   crop_sugHarvestingDay               ; harvesting day (day of year)
+  ;;;; root
+  crop_rootZoneDepth                  ; root zone depth (mm)
 
   ;*****************************************************************************************************************
   ;*** LAND model
@@ -879,13 +881,13 @@ to setup-patches
     ;;; use table input data to set up soil water properties
     setup-soil-soilWaterProperties
 
+    setup-crops
+
     ;;; root zone depth (mm) given initial ecological communities
     set-ecological-community-root-zone-depth
 
     ;;; Initial water content (mm) given initial ecological communities
     set p_soil_waterContent  p_ecol_rootZoneDepth * p_soil_fieldCapacity
-
-    setup-crops
   ]
 
   setup-river-water
@@ -1893,14 +1895,24 @@ end
 
 to set-ecological-community-root-zone-depth
 
-  set p_ecol_rootZoneDepth get-ecological-community-root-zone-depth p_ecol_%wood p_ecol_%brush p_ecol_%grass
+  ;;; root zone depth is set to be the weighted mean of the maximum root zone depth of each crop and ecological component (water ecological community is ignored)
+
+  let cropsRootZoneDepth (p_ecol_%crop / 100) * get-mean-max-root-depth-of-crops p_crop_frequency
+
+  set p_ecol_rootZoneDepth cropsRootZoneDepth + get-ecological-community-root-zone-depth p_ecol_%crop p_ecol_%wood p_ecol_%brush p_ecol_%grass
 
   set p_ecol_rootZoneDepth min (list p_soil_depth p_ecol_rootZoneDepth) ;;; it cannot be deeper than the soil layer
   ;;; root zone depth will be 0 if there is no active (terrestrial) ecological community (100% bare soil or water)
 
 end
 
-to-report get-ecological-community-root-zone-depth [ %wood %brush %grass ]
+to-report get-mean-max-root-depth-of-crops [ cropFrequencies ]
+
+  report sum (map [ [i j] -> (i / 100) * j ] cropFrequencies crop_rootZoneDepth)
+
+end
+
+to-report get-ecological-community-root-zone-depth [ %crop %wood %brush %grass ]
 
   report
   (%wood / 100) * (get-max-root-depth-of-ecological-component "wood") +
@@ -3136,7 +3148,7 @@ end
 
 to print-crop-table
 
-  output-print (word " | typesOfCrops | T_sum | HI | I_50A | I_50B | T_base | T_opt | RUE | I_50maxH | I_50maxW | T_heat | T_ext | S_water | sugSowingDay | sugHarvestingDay | ")
+  output-print (word " | typesOfCrops | T_sum | HI | I_50A | I_50B | T_base | T_opt | RUE | I_50maxH | I_50maxW | T_heat | T_ext | S_water | sugSowingDay | sugHarvestingDay | rootZoneDepth |")
 
   foreach n-values (length crop_typesOfCrops) [j -> j]
   [
@@ -3157,6 +3169,7 @@ to print-crop-table
       " | " (item cropIndex crop_S_water)
       " | " (item cropIndex crop_sugSowingDay)
       " | " (item cropIndex crop_sugHarvestingDay)
+      " | " (item cropIndex crop_rootZoneDepth)
       " | ")
   ]
 
@@ -3391,19 +3404,24 @@ to setup-yield-performance-data-file
   ;;; check that filePath does not exceed 100 (not common in this context)
   ;if (length filePath > 120) [ print "WARNING: file path may be too long, depending on your current directory. Decrease length of file name or increase the limit." set filePath substring filePath 0 120 ]
 ;print filePath
-  file-open filePath
 
-  file-print (word
-    "terrainRandomSeed,randomSeed,"
-    "currentYear,currentDayOfYear,"
-    "precipitation_yearTotal,p_soil_meanARID,"
-    "x,y,"
-    "p_water,p_ecol_rootZoneDepth,p_soil_runOffCurveNumber,p_ecol_albedo,p_ecol_biomass,"
-    "p_ecol_%water,p_ecol_%crop,p_ecol_%wood,p_ecol_%brush,p_ecol_%grass,"
-    "crop,p_crop_frequency,p_soil_meanARID_grow,p_crop_yield,p_crop_totalYield"
-  )
+  ;;; do not repeat the setup if file already exists
+  if (not file-exists? filePath)
+  [
+    file-open filePath
 
-  file-close
+    file-print (word
+      "terrainRandomSeed,randomSeed,"
+      "currentYear,currentDayOfYear,"
+      "precipitation_yearTotal,p_soil_meanARID,"
+      "x,y,"
+      "p_water,p_ecol_rootZoneDepth,p_soil_runOffCurveNumber,p_ecol_albedo,p_ecol_biomass,"
+      "p_ecol_%water,p_ecol_%crop,p_ecol_%wood,p_ecol_%brush,p_ecol_%grass,"
+      "crop,p_crop_frequency,p_soil_meanARID_grow,p_crop_yield,p_crop_totalYield"
+    )
+
+    file-close
+  ]
 
 end
 
@@ -3540,7 +3558,7 @@ to export-cropTable-of-yield-experiment
 
     file-print (word
       "terrainRandomSeed,initRandomSeed,"
-      "crop,T_sum,HI,I_50A,I_50B,T_base,T_opt,RUE,I_50maxH,I_50maxW,T_heat,T_extreme,S_water,sowingDay,harvestDay"
+      "crop,T_sum,HI,I_50A,I_50B,T_base,T_opt,RUE,I_50maxH,I_50maxW,T_heat,T_extreme,S_water,sowingDay,harvestDay,rootZoneDepth"
     )
 
     foreach crop_selection
@@ -3567,7 +3585,8 @@ to export-cropTable-of-yield-experiment
       file-type (item cropIndex crop_T_extreme) file-type ","
       file-type (item cropIndex crop_S_water) file-type ","
       file-type (item cropIndex crop_sowingDay) file-type ","
-      file-type (item cropIndex crop_harvestingDay)
+      file-type (item cropIndex crop_harvestingDay) file-type ","
+      file-type (item cropIndex crop_rootZoneDepth)
       file-print ""
     ]
 
@@ -4252,6 +4271,8 @@ to load-crops-table
 
   let sugHarvestingDayColumn (item 35 (item 3 cropsTable)) - 1
 
+  let rootZoneDepthColumn (item 37 (item 3 cropsTable)) - 1
+
   ;;;==================================================================================================================
   ;;; extract data---------------------------------------------------------------------------------------
 
@@ -4289,6 +4310,8 @@ to load-crops-table
   set crop_sugSowingDay map [row -> item sugSowingDayColumn row ] cropsData
 
   set crop_sugHarvestingDay map [row -> item sugHarvestingDayColumn row ] cropsData
+
+  set crop_rootZoneDepth map [row -> item rootZoneDepthColumn row ] cropsData
 
 end
 
