@@ -584,6 +584,9 @@ Create figure:
 yearLengthInDays_sim = nlevels(factor(weatherSummary$dayOfYear))
 yearLengthInDays_real = nlevels(factor(weatherSummary_rakhigarhi$dayOfYear))
 
+yLabs <- c(expression(paste("solar radiation (", MJ/m^-2, ")")),
+             "temperature (C)", "precipitation (mm)", "ARID", "crop seasons")
+
 for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
@@ -597,7 +600,7 @@ for (imageFormat in listOfImageFormats)
     leftPlotMargin = 2
     rightPlotMargin = 4
     cumPrecipMargins <- c(8, 1.5)
-    bottomMarginWeight = 2
+    textMarginWeight = 2
     cropRangesHeadLength = 0.1
     cropRangesLineWidth = 3
     cropRangesLabelsVerticalSpread = 14
@@ -617,7 +620,7 @@ for (imageFormat in listOfImageFormats)
     leftPlotMargin = 1.5
     rightPlotMargin = 3.8
     cumPrecipMargins <- c(6, 1.5)
-    bottomMarginWeight = 1
+    textMarginWeight = 1
     cropRangesHeadLength = 0.08
     cropRangesLineWidth = 3
     cropRangesLabelsVerticalSpread = 10
@@ -635,27 +638,47 @@ for (imageFormat in listOfImageFormats)
   }
   
   nColumns = 3
-  nRowsExceptBottom = 5
+  nRowsExceptTopAndBottom = 5
   
-  layout(rbind(matrix(1:(nColumns * nRowsExceptBottom), 
-                      nrow = nRowsExceptBottom,
+  layout(rbind(1:nColumns, # top row (headers)
+               # main block with plots
+               matrix((nColumns + 1):(nColumns + (nColumns * nRowsExceptTopAndBottom)), 
+                      nrow = nRowsExceptTopAndBottom,
                       ncol = nColumns, 
                       byrow = FALSE),
-               c((nColumns * nRowsExceptBottom) + 1,
-                 rep(((nColumns * nRowsExceptBottom) + 2), 2))),
+               # bottom row (x axis title)
+               c((nColumns + 1) + (nColumns * nRowsExceptTopAndBottom),
+                 rep(((nColumns + 1) +(nColumns * nRowsExceptTopAndBottom) + 1), nColumns - 1))),
          widths = c(1, 10, 12),
-         heights = c(rep(10, nRowsExceptBottom) + c(1, rep(0, nRowsExceptBottom - 2), -2), bottomMarginWeight)
+         heights = c(textMarginWeight, 
+                     rep(10, nRowsExceptTopAndBottom) + c(1, rep(0, nRowsExceptTopAndBottom - 2), -2), 
+                     textMarginWeight)
   )
   
+  # top row: empty and two headers
   
+  par(mar = c(0, 0, 0, 0))
   
-  yLabs <- c(expression(paste("solar radiation (", MJ/m^-2, ")")),
-             "temperature (C)", "precipitation (mm)", "ARID", "crop seasons")
+  plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+  
+  par(mar = c(0, leftPlotMargin, 0, 0))
+  
+  plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+  text(x = 0.5, y = 0.5, font = 4,
+       cex = grScale * (2 + fontRescale),
+       labels = "Rakhigarhi (1984-2007)")
+  
+  par(mar = c(0, 0, 0, rightPlotMargin))
+  
+  plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+  text(x = 0.5, y = 0.5, font = 4,
+       cex = grScale * (2 + fontRescale),
+       labels = "Simulated (750 years)")
+  
+  # First column: y axis titles
   
   par(cex = grScale,
       cex.axis = grScale * (0.8 + axisTextRescale))
-  
-  # First column: y axis titles
   
   par(mar = c(0, 0, 0, 0.4))
   
@@ -1350,8 +1373,8 @@ for (imageFormat in listOfImageFormats)
   dev.off()
   
 }
-rm(imageFormat, grScale, fontRescale, yLabs, nColumns, nRowsExceptBottom, 
-   axisTextRescale, marginTextRescale, leftPlotMargin, rightPlotMargin, cumPrecipMargins, bottomMarginWeight,
+rm(imageFormat, grScale, fontRescale, yLabs, nColumns, nRowsExceptTopAndBottom, 
+   axisTextRescale, marginTextRescale, leftPlotMargin, rightPlotMargin, cumPrecipMargins, textMarginWeight,
    tempData, aCrop, aCropIndex, cropRangesHeadLength, cropRangesLineWidth)
 ```
 
@@ -1958,6 +1981,7 @@ for (imageFormat in listOfImageFormats)
     plotName = "figures/Fig_exp2_ARIDvsPrecipitation_ggplot.png"
     
     grScale = 2
+    fontRescale = 1
     
     png(plotName, width = grScale * 600, height = grScale * 300)
   }
@@ -1967,6 +1991,7 @@ for (imageFormat in listOfImageFormats)
     plotName = "figures/Fig_exp2_ARIDvsPrecipitation_ggplot.eps"
     
     grScale = 2
+    fontRescale = 0.8
     
     extrafont::loadfonts(device = "postscript")
     grDevices::postscript(file = plotName,
@@ -1989,8 +2014,8 @@ for (imageFormat in listOfImageFormats)
        ylab("mean ARID") +
        xlab("precipitation annual sum (mm) (yearly mean)") +
        theme_light(base_size = 11 * grScale) +
-       theme(axis.text = element_text(size = 15),
-             axis.title = element_text(size = 15),
+       theme(axis.text = element_text(size = 15 * fontRescale),
+             axis.title = element_text(size = 15 * fontRescale),
              strip.background = element_rect(fill = "white"),
              strip.text = element_text(colour = "black"))) +
       (ggplot(data = yieldData, aes(y = meanARID_grow, x = precipitation_dailyCum_plateauValue_yearlyMean, color = crop)) +
@@ -2001,8 +2026,8 @@ for (imageFormat in listOfImageFormats)
          ylab("") +
          xlab("cumulative daily precipitation plateau value (yearly mean)") +
          theme_light(base_size = 11 * grScale) +
-         theme(axis.text = element_text(size = 15),
-               axis.title = element_text(size = 15),
+         theme(axis.text = element_text(size = 15 * fontRescale),
+               axis.title = element_text(size = 15 * fontRescale),
                strip.background = element_rect(fill = "white"),
                strip.text = element_text(colour = "black"))) +
       plot_layout(nrow = 1, widths = c(1, 1))
@@ -2997,11 +3022,12 @@ yieldData <- do.call(rbind, lapply(file_names[nameFilter], read.csv))
 
 for (aTerrainSeed in listOfTerrainSeeds[-1])
 {
-  nameFilter <- grepl(paste0("I2_yield-exp_terrainRandomSeed=", aTerrainSeed, 
+  nameFilter <- grepl(paste0("I2_yield-exp_terrainRandomSeed=", aTerrainSeed,
                              "_type-of-experiment=river-variation_experiment-name=exp4"), file_names)
-  
+
   yieldData <- rbind(yieldData, do.call(rbind, lapply(file_names[nameFilter], read.csv)))
 }
+
 rm(aTerrainSeed)
 ```
 
@@ -4041,7 +4067,7 @@ knitr::include_graphics(plotName)
 
 Clear temporary objects:
 
-```{r, eval=FALSE}
+```{r}
 rm(yieldData, parsData,
    corTotalYieldFreq_byPosCropAndTerrain,
    plotName)
