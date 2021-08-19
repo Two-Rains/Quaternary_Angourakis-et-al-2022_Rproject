@@ -119,6 +119,21 @@ globals
   sugSowingDay ; sowing day (day of year)
   sugHarvestingDay ; harvesting day (day of year)
 
+  ;;; weather input data
+  weatherInputData_firstYear
+  weatherInputData_lastYear
+  weatherInputData_YEARS
+  weatherInputData_DOY
+  weatherInputData_YEAR-DOY
+  weatherInputData_solarRadiation
+  weatherInputData_precipitation
+  weatherInputData_temperature
+  weatherInputData_maxTemperature
+  weatherInputData_minTemperature
+  ;weatherInputData_windSpeed
+  ;weatherInputData_relativeHumidity
+  ;weatherInputData_dewTemperature
+
   ;;; variables
   ;;;; time tracking
   currentYear
@@ -164,6 +179,8 @@ globals
   ;;;; counters and final measures
   ARID_yearSeries ; registers daily values of ARID of the current year (used to export data)
   ARID_yearSeries_lastYear ; saves daily values of ARID of the last year (used to export data)
+  T_max_yearSeries ; registers daily values of T_max of the current year (used to export data)
+  T_max_yearSeries_lastYear ; saves daily values of T_max of the last year (used to export data)
 ]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -237,6 +254,9 @@ to set-parameters
   ;;; setup parameters depending on the type of experiment
   if (type-of-experiment = "user-defined")
   [
+    ;;; enable weather generation
+    set is-weather-generation-active true
+
     ;;; load parameters from user interface
 
     ;;; weather generation
@@ -281,6 +301,9 @@ to set-parameters
   ]
   if (type-of-experiment = "random")
   [
+    ;;; enable weather generation
+    set is-weather-generation-active true
+
     ;;; use values from user interface as a maximum for random uniform distributions
     set temperature_annualMinAt2m -15 + random-float 30
     set temperature_annualMaxAt2m temperature_annualMinAt2m + random-float 25
@@ -330,6 +353,9 @@ to set-parameters
   ]
   if (type-of-experiment = "precipitation-variation")
   [
+    ;;; enable weather generation
+    set is-weather-generation-active true
+
     ;;; load parameters from user interface
 
     ;;; weather generation
@@ -361,6 +387,35 @@ to set-parameters
     set precipitation_dailyCum_inflection2_yearlySd precipitation_daily-cum_inflection2_yearly-sd
     set precipitation_dailyCum_rate2_yearlyMean precipitation_daily-cum_rate2_yearly-mean
     set precipitation_dailyCum_rate2_yearlySd precipitation_daily-cum_rate2_yearly-sd
+
+    set albedo par_albedo
+    set elevation par_elevation
+
+    ;;; Soil Water Balance model
+    set elevation par_elevation
+    set WHC water-holding-capacity
+    set DC drainage-coefficient
+    set z root-zone-depth
+    set CN runoff-curve
+  ]
+  if (type-of-experiment = "weather-input-data")
+  [
+    ;;; disable weather generation and load parameters from user interface
+    set is-weather-generation-active false
+
+    ;;; load weather input data from file
+    load-weather-input-data-table
+
+    ;;; set end of simulation year according to input data
+    set end-simulation-in-year weatherInputData_lastYear - weatherInputData_firstYear
+
+    ;;; weather parameters are left with default values, but effectively ignored given that input weather is used.
+    ;;; This applies to solar radiation, temperature and precipitation, but not CO2 levels, for which there is no input data available.
+    set CO2_annualMin CO2-annual-min
+    set CO2_annualMax CO2-annual-max
+    set CO2_meanDailyFluctuation CO2-mean-daily-fluctuation
+
+    ;;; remaining parameters are set to user-defined values
 
     set albedo par_albedo
     set elevation par_elevation
@@ -540,17 +595,23 @@ end
 
 to update-weather
 
-  ;;; values are assigned using simple parametric models
-  ;;; alternatively, a specific time series could be used
+  ifelse (is-weather-generation-active)
+  [
+    ;;; values are assigned using simple parametric models
+    ;;; alternatively, a specific time series could be used
 
-  update-temperature currentDayOfYear
+    update-temperature currentDayOfYear
 
-  update-precipitation currentDayOfYear
+    update-precipitation currentDayOfYear
+
+    set solarRadiation get-solar-radiation currentDayOfYear
+  ]
+  [
+    ;;; values are taken from input data
+    set-day-values-from-input-data currentDayOfYear currentYear
+  ]
 
   set CO2 get-CO2 currentDayOfYear
-
-  set solarRadiation get-solar-radiation currentDayOfYear
-
   set netSolarRadiation (1 - albedo) * solarRadiation
   set ETr get-ETr
 
@@ -639,6 +700,48 @@ to-report get-solar-radiation [ dayOfYear ]
     southHemisphere?
   ))
   ;;; NOTE: it might be possible to decrease solar radiation depending on the current day precipitation. Additional info on precipitation effect on solar radiation is needed.
+
+end
+
+to set-day-values-from-input-data [ dayOfYear year ]
+
+  ;;; find corresponding index to year-dayOfYear pair
+
+  let yearInInputData weatherInputData_firstYear + year
+
+  let yearAndDoyIndex position (word yearInInputData "-" dayOfYear) weatherInputData_YEAR-DOY
+
+  ;;; get values from weather input data
+
+  set solarRadiation item yearAndDoyIndex weatherInputData_solarRadiation
+
+  set T item yearAndDoyIndex weatherInputData_temperature
+
+  set T_min item yearAndDoyIndex weatherInputData_minTemperature
+
+  set T_max item yearAndDoyIndex weatherInputData_maxTemperature
+
+  set RAIN item yearAndDoyIndex weatherInputData_precipitation
+
+  if (dayOfYear = 1)
+  [
+    ;;; fill values of precipitation_yearSeries and precipitation_cumYearSeries, used here only for visualisation
+
+    let yearAndLastDoyIndex position (word yearInInputData "-" yearLengthInDays) weatherInputData_YEAR-DOY
+
+    set precipitation_yearSeries sublist weatherInputData_precipitation yearAndDoyIndex (yearAndLastDoyIndex + 1)
+
+    let yearTotal sum precipitation_yearSeries
+    set precipitation_cumYearSeries (list)
+    let cumulativeSum 0
+    foreach precipitation_yearSeries
+    [
+      i ->
+      set cumulativeSum cumulativeSum + i
+      set precipitation_cumYearSeries lput cumulativeSum precipitation_cumYearSeries
+    ]
+    set precipitation_cumYearSeries map [i -> i / yearTotal] precipitation_cumYearSeries
+  ]
 
 end
 
@@ -963,6 +1066,8 @@ to update-output-stats
 
   update-ARID_yearSeries
 
+  update-T_max_yearSeries
+
 end
 
 to update-ARID_yearSeries
@@ -977,6 +1082,21 @@ to update-ARID_yearSeries
   ]
   ; append this day ARID to ARID_yearSeries
   set ARID_yearSeries lput ARID ARID_yearSeries
+
+end
+
+to update-T_max_yearSeries
+
+  ; if starting a new year
+  if (currentDayOfYear = 1)
+  [
+    ; save current year as last year
+    set T_max_yearSeries_lastYear T_max_yearSeries
+    ; reset ARID_yearSeries if starting a new year
+    set T_max_yearSeries (list)
+  ]
+  ; append this day T_max to T_max_yearSeries
+  set T_max_yearSeries lput T_max T_max_yearSeries
 
 end
 
@@ -1124,6 +1244,29 @@ end
 ;;; EXPORT YIELD PERFORMANCES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+to experiment-0
+
+  let numberOfBatches 1
+
+  set experiment-name "exp0"
+
+  set type-of-experiment "weather-input-data"
+
+  parameters-to-default
+
+  set experiment-numberOfRuns 1
+
+  set experiment-initRandomSeed 0
+
+  repeat numberOfBatches
+  [
+    run-yield-performance-experiment-batch
+
+    set experiment-initRandomSeed randomSeed
+  ]
+
+end
+
 to experiment-1
 
   let numberOfBatches 2
@@ -1228,7 +1371,7 @@ to setup-yield-performance-data-file
     "precipitation_yearTotal,meanARID,"
     "elevation,DC,z,CN,FC,WHC,WP,MUF,albedo,"
     "crop,T_sum,HI,I_50A,I_50B,T_base,T_opt,RUE,I_50maxH,I_50maxW,T_heat,T_extreme,S_CO2,S_water,sowingDay,harvestDay,"
-    "meanARID_grow,yield"
+    "meanARID_grow,meanT_max_grow,yield"
   )
 
   file-close
@@ -1313,20 +1456,24 @@ to export-yield-performance
     file-type (item cropIndex S_water) file-type ","
     file-type (item cropIndex sowingDay) file-type ","
     file-type (item cropIndex harvestingDay) file-type ","
-    ;;; mean ARID during grow season in year
+    ;;; mean ARID and T_max during grow season in year
     ifelse ((item cropIndex sowingDay) < (item cropIndex harvestingDay))
     [
       ; growing season fits the current calendar year
-      file-type (mean sublist ARID_yearSeries (item cropIndex sowingDay) (item cropIndex harvestingDay)) file-type "," ]
+      file-type (mean sublist ARID_yearSeries (item cropIndex sowingDay) (item cropIndex harvestingDay)) file-type ","
+      file-type (mean sublist T_max_yearSeries (item cropIndex sowingDay) (item cropIndex harvestingDay)) file-type ","
+    ]
     [
       ; growing season spans also into last year
       ifelse (currentYear = 0)
       [
         ; there is no last year
         file-type "," ; these NA will be signaling the rows that should be ignored in analysis
+        file-type "," ; these NA will be signaling the rows that should be ignored in analysis
       ]
       [
         file-type (mean sentence (sublist ARID_yearSeries 1 (item cropIndex harvestingDay)) (sublist ARID_yearSeries_lastYear (item cropIndex sowingDay) yearLengthInDays)) file-type ","
+        file-type (mean sentence (sublist T_max_yearSeries 1 (item cropIndex harvestingDay)) (sublist T_max_yearSeries_lastYear (item cropIndex sowingDay) yearLengthInDays)) file-type ","
       ]
     ]
     ;;; yield
@@ -1489,6 +1636,76 @@ to load-crops-table
   set sugSowingDay map [row -> item sugSowingDayColumn row ] cropsData
 
   set sugHarvestingDay map [row -> item sugHarvestingDayColumn row ] cropsData
+
+end
+
+to load-weather-input-data-table
+
+  ;;; this procedure loads the values of the weather data input table
+  ;;; the table contains:
+  ;;;   1. 18 lines of metadata, to be ignored
+  ;;;   2. one line with the headers of the table
+  ;;;   3. remaining rows containing row name and values
+
+  let weatherTable csv:from-file "weather_input/POWER_SinglePoint_Daily_19840101_20071231_029d17N_076d70E_5b401917.csv"
+
+  ;;;==================================================================================================================
+  ;;; mapping coordinates (row or columns) from headings (line 19 == index 18 -----------------------------------------
+  ;;; NOTE: always correct raw mapping coordinates (start at 1) into list indexes (start at 0)
+  let variableNames item (19 - 1) weatherTable
+
+  let yearColumn position "YEAR" variableNames
+
+  let doyColumn position "DOY" variableNames
+
+  let solarRadiationColumn position "ALLSKY_SFC_SW_DWN" variableNames
+
+  let precipitationColumn position "PRECTOT" variableNames
+
+  let temperatureColumn position "T2M" variableNames
+
+  let temperatureMaxColumn position "T2M_MAX" variableNames
+
+  let temperatureMinColumn position "T2M_MIN" variableNames
+
+  ;let windSpeedColumn position "WS2M" variableNames
+  ;let relativeHumidityColumn position "RH2M" variableNames
+  ;let temperatureDewColumn position "T2MDEW" variableNames
+
+  ;;;==================================================================================================================
+  ;;; extract data---------------------------------------------------------------------------------------
+
+  ;;; read variables per year and day (list of lists, matrix: year-day x variables)
+  let weatherData sublist weatherTable (20 - 1) (length weatherTable) ; select only those row corresponding to variable data, if there is anything else
+
+  ;;; extract year-day of year pairs from the third and fourth columns
+  set weatherInputData_YEARS map [row -> item yearColumn row ] weatherData
+  set weatherInputData_DOY map [row -> item doyColumn row ] weatherData
+  set weatherInputData_YEAR-DOY (map [[i j] -> (word i "-" j)] weatherInputData_YEARS weatherInputData_DOY)
+
+  ;;; extract first and last year
+  set weatherInputData_firstYear first weatherInputData_YEARS
+
+  set weatherInputData_lastYear last weatherInputData_YEARS
+
+  ;;; extract parameter values from the given column
+  ;;; NOTE: read-from-string is required because the original file is formated in a way that NetLogo interprets values as strings.
+
+  set weatherInputData_solarRadiation map [row -> read-from-string item solarRadiationColumn row ] weatherData
+
+  set weatherInputData_precipitation map [row -> read-from-string item precipitationColumn row ] weatherData
+
+  set weatherInputData_temperature map [row -> read-from-string item temperatureColumn row ] weatherData
+
+  set weatherInputData_maxTemperature map [row -> read-from-string item temperatureMaxColumn row ] weatherData
+
+  set weatherInputData_minTemperature map [row -> read-from-string item temperatureMinColumn row ] weatherData
+
+  ;set weatherInputData_windSpeed map [row -> item windSpeedColumn row ] weatherData
+
+  ;set weatherInputData_relativeHumidity map [row -> item relativeHumidityColumn row ] weatherData
+
+  ;set weatherInputData_dewTemperature map [row -> item temperatureDewColumn row ] weatherData
 
 end
 
@@ -1675,10 +1892,10 @@ to-report clampMinMax [ value minValue maxValue ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-18
-299
-76
-358
+20
+285
+78
+344
 -1
 -1
 1.0
@@ -1741,7 +1958,7 @@ INPUTBOX
 116
 122
 randomSeed
-20.0
+1.0
 1
 0
 Number
@@ -1753,8 +1970,8 @@ CHOOSER
 187
 type-of-experiment
 type-of-experiment
-"user-defined" "random" "precipitation-variation"
-2
+"user-defined" "random" "precipitation-variation" "weather-input-data"
+3
 
 MONITOR
 1420
@@ -1801,7 +2018,7 @@ INPUTBOX
 247
 122
 end-simulation-in-year
-30.0
+23.0
 1
 0
 Number
@@ -2666,10 +2883,10 @@ CN
 9
 
 BUTTON
-10
-516
-164
-549
+12
+505
+166
+538
 NIL
 parameters-to-default
 NIL
@@ -2709,10 +2926,10 @@ albedo
 9
 
 SWITCH
-60
-784
-215
-817
+1626
+372
+1781
+405
 southHemisphere?
 southHemisphere?
 1
@@ -2840,10 +3057,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot CO2"
 
 BUTTON
-9
-468
-188
-501
+11
+457
+190
+490
 run yield experiment batch
 run-yield-performance-experiment-batch
 NIL
@@ -2857,43 +3074,43 @@ NIL
 1
 
 INPUTBOX
-94
-269
-249
-329
-experiment-initRandomSeed
-0.0
-1
-0
-Number
-
-INPUTBOX
-95
-327
-250
-387
-experiment-numberOfRuns
-25.0
-1
-0
-Number
-
-INPUTBOX
-32
-394
+96
+255
 251
-454
+315
+experiment-initRandomSeed
+1.0
+1
+0
+Number
+
+INPUTBOX
+97
+313
+252
+373
+experiment-numberOfRuns
+1.0
+1
+0
+Number
+
+INPUTBOX
+34
+380
+253
+440
 experiment-name
-exp2
+exp0
 1
 0
 String
 
 BUTTON
 204
-468
+481
 267
-501
+514
 exp1
 experiment-1
 NIL
@@ -2908,11 +3125,39 @@ NIL
 
 BUTTON
 204
-508
+521
 267
-541
+554
 exp2
 experiment-2
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+SWITCH
+30
+784
+247
+817
+is-weather-generation-active
+is-weather-generation-active
+1
+1
+-1000
+
+BUTTON
+203
+443
+266
+476
+exp0
+experiment-0
 NIL
 1
 T
