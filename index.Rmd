@@ -7,9 +7,12 @@ output: html_document
 
 This file and all other referenced in the code can be found at the repository: [https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2021](https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2021)
 
+## Load packages and define helper functions:
+
 Load packages:
 
 ```{r}
+require(pander)
 require(reshape2)
 require(ggplot2)
 require(patchwork)
@@ -44,10 +47,63 @@ getRelatedVariableWithTwoKeys <- function(firstKeyInCallingTable, secondKeyInCal
 }
 ```
 
+Define function to build table with Pearson's correlations and linear regression models for a pair of dependent and independent variables per each crop in dataset:
+
+```{r}
+linearModels.table <- function(dataset, dependentVariableName, independentVariableName)
+{
+  tableTemp <- data.frame(
+    levels(dataset$crop),
+    numeric(nlevels(dataset$crop)),
+    numeric(nlevels(dataset$crop)),
+    numeric(nlevels(dataset$crop)),
+    numeric(nlevels(dataset$crop)),
+    numeric(nlevels(dataset$crop)),
+    numeric(nlevels(dataset$crop))
+  )
+  names(tableTemp) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
+  
+  for (aCrop in levels(dataset$crop))
+  {
+    tableTemp$correlation_Pearson[tableTemp$crop == aCrop] <- 
+      cor(x = dataset[dataset$crop == aCrop, dependentVariableName], 
+          y = dataset[dataset$crop == aCrop, independentVariableName], 
+          use = "pairwise.complete.obs")
+    
+    linearModel <- lm(as.formula(paste0(dependentVariableName, "~", independentVariableName)), data = dataset[yieldData$crop == aCrop,])
+    
+    tableTemp$intercept[tableTemp$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
+    tableTemp$intercept_p[tableTemp$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
+    tableTemp$speed[tableTemp$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
+    tableTemp$speed_p[tableTemp$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
+    tableTemp$adjrsquared[tableTemp$crop == aCrop] <- summary(linearModel)$adj.r.squared
+  }
+  
+  rm(aCrop, linearModel)
+  
+  return(tableTemp)
+}
+```
+
+Define auxiliar function for calculating cumulative curve (extracted from weatherModel.R; see documentation folder in Weather model):
+
+```{r}
+getCumulativePrecipitationOfYear <- function(dailyPrecipitationYear)
+{
+  return(cumsum(dailyPrecipitationYear) / sum(dailyPrecipitationYear))
+}
+```
+
+## Global settings
+
 Define the format of image files to be generated (only "png" and "eps"):
 
 ```{r}
 listOfImageFormats <- c("eps", "png")
+
+# eps-specific arguments (cairo_ps)
+pointSize = 12
+fallbackResolution = 600
 ```
 
 ## Crop table
@@ -84,11 +140,170 @@ cropColours <- qualitative_hcl(nlevels(cropTable$crop))
 knitr::kable(cropTable)
 ```
 
+## Experiment 0
+
+Experiment 0 
+
+Experiment 0 simulates the growth and yield of crops included in 'cropTable' using the NetLogo implementation of *SIMPLE* crop model (Zhao et al. 2019), adapted as a module of the *Indus Village* model, and using daily weather variables imported from external file containing real-world data.
+
+As the reference real-world data, we use the data downloaded at NASA´s POWER access viewer (power.larc.nasa.gov/data-access-viewer/) selecting the user community 'Agroclimatology' between 01/01/1984 and 31/12/2007. The exact location used as a reference is:
+
+- Rakhigarhi, Haryana, India (Latitude: 29.1687, Longitude: 76.0687)  
+
+We selected the ICASA Format's parameters:
+
+- Precipitation (PRECTOT)  
+- Wind speed at 2m (WS2M)  
+- Relative Humidity at 2m (RH2M)  
+- Dew/frost point at 2m (T2MDEW)  
+- Maximum temperature at 2m (T2M_MAX)  
+- Minimum temperature at 2m (T2M_MIN)  
+- All sky insolation incident on a horizontal surface (ALLSKY_SFC_SW_DWN)  
+- Temperature at 2m (T2M)
+
+Load *Soil Water* (or Soil Water Balance) model code to calculate ARID given real-world data:
+
+```{r}
+source("models/soilWaterModel/estimateETr.R")
+source("models/soilWaterModel/watbal.model.R")
+``` 
+
+Load and format the real-world dataset so that they can be used in the Soil Water model:
+
+```{r}
+weatherData_rakhigarhi <- watbal.weather.file("models/weather_input/POWER_SinglePoint_Daily_19840101_20071231_029d17N_076d70E_5b401917.csv", 
+                                              year = 1984:2007)
+```
+
+Estimate reference evapotranspiration using FAO recomendations (Penman-Monteith method):
+
+```{r}
+weatherData_rakhigarhi$ETr <- estimateETr(weatherData_rakhigarhi$I, 
+                                          weatherData_rakhigarhi$T2M, 
+                                          weatherData_rakhigarhi$Tmax, 
+                                          weatherData_rakhigarhi$Tmin, 
+                                          weatherData_rakhigarhi$T2MDEW, 
+                                          weatherData_rakhigarhi$WS2M)
+```
+
+Load simulation data:
+
+```{r}
+yieldData_exp0 <- read.csv("models/output/SIMPLE-crop-model_yield-exp_type-of-experiment=weather-input-data_experiment-name=exp0_initRandomSeed=0.csv")
+```
+
+Convert `yield = 0` to `NA` when `meanARID_grow = NA` (i.e., first year simulation runs with incomplete growing seasons):
+
+```{r}
+yieldData_exp0$yield[is.na(yieldData_exp0$meanARID_grow)] <- NA
+```
+
+Force the same order of crops used by cropTable:
+
+```{r}
+yieldData_exp0$crop <- factor(yieldData_exp0$crop, levels = levels(cropTable$crop))
+```
+
+Calculate the range of ARID and productivity (yield):
+
+```{r}
+minARID_exp0 = round(min(c(yieldData_exp0$meanARID, yieldData_exp0$meanARID_grow), na.rm = TRUE), digits = 2)
+maxARID_exp0 = round(max(c(yieldData_exp0$meanARID, yieldData_exp0$meanARID_grow), na.rm = TRUE), digits = 2)
+
+minYield_exp0 = round(min(yieldData_exp0$yield, na.rm = TRUE), digits = -1)
+maxYield_exp0 = round(max(yieldData_exp0$yield, na.rm = TRUE), digits = -1)
+```
+
+Replace `precipitation_yearlyMean` and `precipitation_dailyCum_plateauValue_yearlyMean` variables with values calculated from `weatherData_rakhigarhi` to compare experiment 0 with experiment 2.
+
+This is a function to estimate the "plateau value" of a cumulative precipitation curve (one year), assuming it approximates a double logistic curve:
+
+```{r}
+estimatePlateauValue <- function(dailyPrecipitation, 
+                            # cumulative curve slope with less than this is considered a plateau:
+                            plateauMaxRate = 1/365, # daily precipitation with up to ~0.27% annualSum, which corresponds to a straight slope from 0 to 1 with no plateaus
+                            # this is the percentage of annualSum 
+                            # which dismiss plateaus at the extremes of the cumulative curve:
+                            toleranceOfProximityToExtremes = 0.005 # 0.5% of annualSum
+                            )
+{
+  annualSum = sum(dailyPrecipitation)
+  
+  cumulativeCurve <- getCumulativePrecipitationOfYear(dailyPrecipitation)
+  
+  # filter out values not in plateaus
+  daysInPlateaus <- dailyPrecipitation <= plateauMaxRate * annualSum
+  
+  # filter out values too near the first and last plateaus
+  daysMoreLikelyToBeMiddlePlateau <- 
+    cumulativeCurve > toleranceOfProximityToExtremes & 
+    cumulativeCurve < 1 - toleranceOfProximityToExtremes
+  
+  return(
+    getMode(
+      cumulativeCurve[
+        daysInPlateaus & daysMoreLikelyToBeMiddlePlateau
+        ]
+      )
+    )
+}
+
+getMode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+```{r}
+yieldData_exp0$precipitation_yearlyMean <- rep(mean(yieldData_exp0$precipitation_yearTotal), nrow(yieldData_exp0))
+yieldData_exp0$precipitation_dailyCum_plateauValue_yearlyMean <- mean(aggregate(
+      weatherData_rakhigarhi$RAIN,
+      by = list(weatherData_rakhigarhi$year),
+      FUN = estimatePlateauValue)[,2]
+    )
+```
+
+Preliminary plotting of yield and ARID per crop:
+
+```{r}
+ggplot(data = yieldData_exp0, aes(x = meanARID_grow, y = yield, color = crop, fill = crop)) +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+      scale_color_manual(values = cropColours, name="", guide = FALSE) +
+      scale_fill_manual(values = cropColours, name="", guide = FALSE) +
+      facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+      xlab("mean ARID") +
+      ylab(expression(paste("yield (", g/m^2, ")"))) +
+      theme_light(base_size = 11 * 1) +
+      theme(axis.text = element_text(size = 15),
+            strip.background = element_rect(fill = "white"),
+            strip.text = element_text(colour = "black"))
+```
+
+Preliminary plotting of yield and T_max per crop:
+
+```{r}
+ggplot(data = yieldData_exp0, aes(x = meanT_max_grow, y = yield, color = crop, fill = crop)) +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+      scale_color_manual(values = cropColours, name="", guide = FALSE) +
+      scale_fill_manual(values = cropColours, name="", guide = FALSE) +
+      facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+      xlab("mean T_max") +
+      ylab(expression(paste("yield (", g/m^2, ")"))) +
+      theme_light(base_size = 11 * 1) +
+      theme(axis.text = element_text(size = 15),
+            strip.background = element_rect(fill = "white"),
+            strip.text = element_text(colour = "black"))
+```
+
+Experiment 0 results are plotted together with experiment 1, serving as points of comparison of the Crop model behaviour with and without the input of the Weather model.
+
 ---
 
 ## Experiment 1
 
-Experiment 1 simulates the growth and yield of crops included in 'cropTable' using the NetLogo implementation of *SIMPLE* crop model (Zhao et al. 2019) adapted as a module of the *Indus Village* model under the default parameter configuration, which is aimed to approximate the conditions in Haryana, NW India. 
+Experiment 1 is analogous to experiment 0, except that weather variables are simulated using the Weather model under the default parameter configuration, which is aimed to approximate the conditions in Rakhigarhi, Haryana, NW India, as reflected in the dataset used in experiment 0. 
 
 ### Loading and preparation
 
@@ -124,46 +339,6 @@ Load daily simulated weather and ARID data:
 
 ```{r}
 weatherData <- read.csv("models/output/SIMPLE-crop-model_yield-exp_weather_type-of-experiment=user-defined_experiment-name=exp1_initRandomSeed=0.csv")
-```
-
-As the reference real-world data, we use the data downloaded at NASA´s POWER access viewer (power.larc.nasa.gov/data-access-viewer/) selecting the user community 'Agroclimatology' between 01/01/1984 and 31/12/2007. The exact location used as a reference is:
-
-- Rakhigarhi, Haryana, India (Latitude: 29.1687, Longitude: 76.0687)  
-
-We selected the ICASA Format's parameters:
-
-- Precipitation (PRECTOT)  
-- Wind speed at 2m (WS2M)  
-- Relative Humidity at 2m (RH2M)  
-- Dew/frost point at 2m (T2MDEW)  
-- Maximum temperature at 2m (T2M_MAX)  
-- Minimum temperature at 2m (T2M_MIN)  
-- All sky insolation incident on a horizontal surface (ALLSKY_SFC_SW_DWN)  
-- Temperature at 2m (T2M)
-
-Load *Soil Water* (or Soil Water Balance) model code to calculate ARID given real-world data:
-
-```{r}
-source("FigWeather_input/soilWaterModel/estimateETr.R")
-source("FigWeather_input/soilWaterModel/watbal.model.R")
-``` 
-
-Load and format the real-world dataset so that they can be used in the Soil Water model:
-
-```{r}
-weatherData_rakhigarhi <- watbal.weather.file("FigWeather_input/POWER_SinglePoint_Daily_19840101_20071231_029d17N_076d70E_5b401917.csv", 
-                                              year = 1984:2007)
-```
-
-Estimate reference evapotranspiration using FAO recomendations (Penman-Monteith method):
-
-```{r}
-weatherData_rakhigarhi$ETr <- estimateETr(weatherData_rakhigarhi$I, 
-                                          weatherData_rakhigarhi$T2M, 
-                                          weatherData_rakhigarhi$Tmax, 
-                                          weatherData_rakhigarhi$Tmin, 
-                                          weatherData_rakhigarhi$T2MDEW, 
-                                          weatherData_rakhigarhi$WS2M)
 ```
 
 Calculate ARID in real-world data:
@@ -567,15 +742,6 @@ maxTemperatureColour = hsv(7.3/360, 74.6/100, 70/100)
 minTemperatureColour = hsv(232/360, 64.6/100, 73/100)
 ```
 
-Define auxiliar function for calculating cumulative curve (extracted from weatherModel.R; see documentation folder in Weather model):
-
-```{r}
-getCumulativePrecipitationOfYear <- function(dailyPrecipitationYear)
-{
-  return(cumsum(dailyPrecipitationYear) / sum(dailyPrecipitationYear))
-}
-```
-
 ### Fig - Weather variables
 
 Create figure:
@@ -591,7 +757,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_weatherAndARID.png"
+    plotName = "figures/exp1_weatherAndARID.png"
     
     grScale = 2
     fontRescale = 0
@@ -611,7 +777,7 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_weatherAndARID.eps"
+    plotName = "figures/exp1_weatherAndARID.eps"
     
     grScale = 1.2
     fontRescale = 0.1
@@ -628,12 +794,10 @@ for (imageFormat in listOfImageFormats)
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 8,
                         height = grScale * 10,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -671,9 +835,9 @@ for (imageFormat in listOfImageFormats)
   par(mar = c(0, 0, 0, rightPlotMargin))
   
   plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
-  text(x = 0.5, y = 0.5, font = 4,
+  text(x = 0.45, y = 0.5, font = 4,
        cex = grScale * (2 + fontRescale),
-       labels = "Simulated (750 years)")
+       labels = "Experiment 1 (750 years)")
   
   # First column: y axis titles
   
@@ -1407,7 +1571,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_yieldPerCrop.png"
+    plotName = "figures/exp1_yieldPerCrop.png"
     
     grScale = 2
     
@@ -1415,28 +1579,31 @@ for (imageFormat in listOfImageFormats)
   }
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_yieldPerCrop.eps"
+    plotName = "figures/exp1_yieldPerCrop.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   par(mar = c(6,6,1,1), cex.lab = grScale, cex.axis = 0.8 * grScale)
   
   boxplot(yield ~ factor(crop), data = yieldData,
           ylab = expression(paste("yield (", g/m^2, ")")), xlab = "",
-          col = cropColours
-          )
+          col = cropColours)
+  # boxplot(yield ~ factor(crop), data = yieldData_exp0,
+  #         ylab = expression(paste("yield (", g/m^2, ")")), xlab = "",
+  #         col = "red")
+  stripchart(yield ~ factor(crop), data = yieldData_exp0,
+             method = "jitter",
+             col = "red", pch = 4,
+             vertical = TRUE, add = TRUE)
   
   dev.off()
 }
@@ -1454,7 +1621,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_yieldPerCrop_ggplot.png"
+    plotName = "figures/exp1_yieldPerCrop_ggplot.png"
     
     grScale = 2
     
@@ -1463,25 +1630,23 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_yieldPerCrop_ggplot.eps"
+    plotName = "figures/exp1_yieldPerCrop_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   print({
-    ggplot(yieldData, aes(y=yield, x=crop, fill=crop)) + 
-      geom_violin(position="dodge") +
+    ggplot(yieldData, aes(y = yield, x = crop, fill = crop)) + 
+      geom_violin(position = "dodge") +
+      geom_jitter(data = yieldData_exp0, aes(y = yield, x = crop, fill = crop), color = "red", shape = 4, width = 0.1) +
       #coord_flip() +
       #geom_boxplot() +
       scale_fill_manual(values = cropColours, name="", guide = FALSE) +
@@ -1505,7 +1670,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_ARIDVsARID_grow.png"
+    plotName = "figures/exp1_ARIDVsARID_grow.png"
     
     grScale = 2
     
@@ -1514,20 +1679,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_ARIDVsARID_grow.eps"
+    plotName = "figures/exp1_ARIDVsARID_grow.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   layout(matrix(c(1, 2), nrow = 1, ncol = 2),
@@ -1539,6 +1701,10 @@ for (imageFormat in listOfImageFormats)
           ylab = "mean ARID", xlab = "growing seasons",
           #las = 2, 
           col = cropColours)
+  stripchart(meanARID_grow ~ factor(crop), data = yieldData_exp0,
+             method = "jitter",
+             col = "red", pch = 4,
+             vertical = TRUE, add = TRUE)
   
   text(x = 0.5, y = minARID * 1.005, labels = "a", font = 2, cex = grScale)
   
@@ -1549,6 +1715,9 @@ for (imageFormat in listOfImageFormats)
           xlab = "current year")
   
   text(x = max(xhist$counts) * 0.9, y = minARID * 1.005, labels = "b", font = 2, cex = grScale)
+  
+  xhist <- hist(yieldData_exp0$meanARID, breaks = 20, plot = FALSE)
+  barplot(xhist$counts, axes = FALSE, space = 0, horiz = TRUE, add = TRUE, col = "red")
   
   dev.off()
 }
@@ -1566,7 +1735,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_ARIDVsARID_grow_ggplot.png"
+    plotName = "figures/exp1_ARIDVsARID_grow_ggplot.png"
     
     grScale = 2
     
@@ -1575,31 +1744,51 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_ARIDVsARID_grow_ggplot.eps"
+    plotName = "figures/exp1_ARIDVsARID_grow_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 6 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 6 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
-  tempData <- rbind(yieldData[, c("crop", "meanARID_grow")],
-                    cbind(crop = rep("year", nrow(yieldData)), 
-                          meanARID_grow = yieldData$meanARID))
+  # build temporary data frames where year meanARID is coded as an extra crop type
+  tempData <- yieldData[, c("crop", "meanARID_grow")]
+  tempData$crop <- sapply(tempData$crop, as.character)
+  for (year in unique(yieldData$currentYear))
+  {
+    for (randomSeed in unique(yieldData$randomSeed))
+    {
+      tempData <- rbind(tempData, 
+                        cbind(crop = "year", 
+                              meanARID_grow = yieldData[yieldData$randomSeed == randomSeed & yieldData$currentYear == year,]$meanARID[1]))
+    }
+  }
   tempData$meanARID_grow <- as.numeric(tempData$meanARID_grow)
+  tempData$crop <- factor(tempData$crop, levels = c(levels(cropTable$crop), "year"))
+  
+  tempData_exp0 <- yieldData_exp0[, cbind("crop", "meanARID_grow")]
+  tempData_exp0$crop <- sapply(tempData_exp0$crop, as.character)
+  for (year in unique(yieldData_exp0$currentYear))
+  {
+    tempData_exp0 <- rbind(tempData_exp0, c(crop = "year", 
+                                            meanARID_grow = yieldData_exp0[yieldData_exp0$currentYear == year,]$meanARID[1]))
+  }
+  tempData_exp0$meanARID_grow <- as.numeric(tempData_exp0$meanARID_grow)
+  tempData_exp0$crop <- factor(tempData_exp0$crop, levels = c(levels(cropTable$crop), "year"))
   
   print({
     (ggplot(tempData, aes(fill = crop, y = meanARID_grow, x = crop)) + 
        geom_violin(position = "dodge") +
+       geom_jitter(data = tempData_exp0, aes(y = meanARID_grow, x = crop, fill = crop), color = "red", shape = 4, width = 0.1) +
        #geom_boxplot() +
+       geom_hline(yintercept = mean(tempData$meanARID_grow[tempData$crop == "year"]), size = grScale) +
+       geom_hline(yintercept = mean(tempData_exp0$meanARID_grow[tempData_exp0$crop == "year"]), size = 0.5 * grScale, color = "red") +
        scale_fill_manual(values = c(cropColours, "grey"), name="", guide = FALSE) +
        scale_x_discrete() + 
        theme_light(base_size = 11 * grScale) +
@@ -1610,11 +1799,54 @@ for (imageFormat in listOfImageFormats)
   
   dev.off()
 }
-rm(tempData, imageFormat, grScale)
+rm(imageFormat, grScale)
 ```
 
 ```{r, out.width = "\\textwidth"}
 knitr::include_graphics(plotName)
+```
+
+Use One-Way ANOVA to express the differences between crop and year-round means (simulation results):
+
+NOTE: using the `tempData`created in the last code chunk.
+
+```{r}
+anovaTable <- data.frame(
+  cbind(
+    Count = lapply(levels(tempData$crop), function(x) { nrow(tempData[tempData$crop == x, ]) }),
+    Mean = lapply(levels(tempData$crop), function(x) { mean(tempData$meanARID_grow[tempData$crop == x], na.rm = TRUE) }),
+    Variance = lapply(levels(tempData$crop), function(x) { var(tempData$meanARID_grow[tempData$crop == x], na.rm = TRUE) })
+  ),
+  row.names = levels(tempData$crop)
+)
+
+knitr::kable(anovaTable)
+```
+
+```{r}
+anova_results <- aov(meanARID_grow ~ crop, data = tempData)
+pander::pander(summary(anova_results),
+               caption = "One-Way ANOVA (dep: ARID_grow, indep: crop)")
+```
+
+Post hoc test (Holm's method):
+
+```{r}
+pairwise_ttest_results <- pairwise.t.test(tempData$meanARID_grow, tempData$crop, p.adjust.method = "holm")
+
+pander::pander(pairwise_ttest_results$p.value,
+               caption = "Post hoc pairwise t-test (Holm's method)")
+```
+
+Tukey Honest Significant Differences:
+
+```{r}
+pander::pander(TukeyHSD(anova_results, "crop")$crop,
+               caption = "Tukey Honest Significant Differences")
+```
+
+```{r}
+rm(tempData, tempData_exp0, anova_results, pairwise_ttest_results, anovaTable)
 ```
 
 ### Fig - mean ARID vs productivity (yield)
@@ -1626,7 +1858,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_yieldVsARID.png"
+    plotName = "figures/exp1_yieldVsARID.png"
     
     grScale = 2
     cex.points = 1
@@ -1636,21 +1868,18 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_yieldVsARID.eps"
+    plotName = "figures/exp1_yieldVsARID.eps"
     
     grScale = 2
     cex.points = 0.5
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   layout(matrix(c(1, 2, 3, 3), nrow = 2, ncol = 2, byrow = FALSE),
@@ -1723,7 +1952,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp1_yieldVsARID_ggplot.png"
+    plotName = "figures/exp1_yieldVsARID_ggplot.png"
     
     grScale = 2
     
@@ -1732,29 +1961,27 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp1_yieldVsARID_ggplot.eps"
+    plotName = "figures/exp1_yieldVsARID_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 3.5 * grScale,
-                          height = 5 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 3.5 * grScale,
+                        height = 5 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   print({
     
-    ggplot(data = yieldData, aes(x = meanARID_grow, y = yield, color = crop, fill = crop)) +
-      geom_point(size = 1) +
-      geom_smooth(method = 'lm') +
+    ggplot(data = yieldData, aes(x = meanARID_grow, y = yield, color = crop)) +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', se = FALSE) +
+      geom_point(data = yieldData_exp0, aes(x = meanARID_grow, y = yield), size = 2, shape = 4, color = 'red') +
+      geom_smooth(data = yieldData_exp0, aes(x = meanARID_grow, y = yield), method = 'lm', color = 'red', se = FALSE, linetype = "dashed") +
       scale_color_manual(values = cropColours, name="", guide = FALSE) +
-      scale_fill_manual(values = cropColours, name="", guide = FALSE) +
       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
       xlab("mean ARID") +
       ylab(expression(paste("yield (", g/m^2, ")"))) +
@@ -1777,43 +2004,249 @@ knitr::include_graphics(plotName)
 Calculate correlation and linear models fitness:
 
 ```{r}
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
+knitr::kable(linearModels.table(yieldData, "yield", "meanARID_grow"), caption = "Pearson's correlation and linear model between ARID (x) and Yield (y) per crop")
+```
 
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
+### Fig - mean T_max vs productivity (yield)
 
-for (aCrop in levels(yieldData$crop))
+Plotting absolute values of yield vs ARID:
+
+```{r}
+for (imageFormat in listOfImageFormats)
 {
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = yieldData$meanARID_grow[yieldData$crop == aCrop], y = yieldData$yield[yieldData$crop == aCrop], use = "pairwise.complete.obs")
+  if (imageFormat == "png")
+  {
+    plotName = "figures/exp1_yieldVsT_max_ggplot.png"
+    
+    grScale = 2
+    
+    png(plotName, width = grScale * 350, height = grScale * 500)
+  }
   
-  linearModel <- lm(yield ~ meanARID_grow, data = yieldData[yieldData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
+  if (imageFormat == "eps")
+  {
+    plotName = "figures/exp1_yieldVsT_max_ggplot.eps"
+    
+    grScale = 2
+    
+    extrafont::loadfonts(device = "postscript")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 3.5 * grScale,
+                        height = 5 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
+  }
+  
+  print({
+    
+    ggplot(data = yieldData, aes(x = meanT_max_grow, y = yield, color = crop)) +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', se = FALSE) +
+      geom_point(data = yieldData_exp0, aes(x = meanT_max_grow, y = yield), size = 2, shape = 4, color = 'red') +
+      geom_smooth(data = yieldData_exp0, aes(x = meanT_max_grow, y = yield), method = 'lm', color = 'red', se = FALSE, linetype = "dashed") +
+      scale_color_manual(values = cropColours, name="", guide = FALSE) +
+      facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+      xlab("mean T_max") +
+      ylab(expression(paste("yield (", g/m^2, ")"))) +
+      theme_light(base_size = 11 * grScale) +
+      theme(axis.text = element_text(size = 15),
+            strip.background = element_rect(fill = "white"),
+            strip.text = element_text(colour = "black"))
+    
+  })
+    
+  dev.off()
 }
-rm(aCrop)
+rm(imageFormat, grScale)
+```
+
+```{r, out.width = "\\textwidth"}
+knitr::include_graphics(plotName)
+```
+
+Calculate correlation and linear models fitness (simulated data):
+
+```{r}
+knitr::kable(linearModels.table(yieldData, "yield", "meanT_max_grow"), caption = "Pearson's correlation and linear model between T_max (x) and Yield (y) per crop")
+```
+
+Integrated plot with yield vs mean ARID during growing season and daily maximum temperature:
+
+```{r}
+for (imageFormat in listOfImageFormats)
+{
+  if (imageFormat == "png")
+  {
+    plotName = "figures/exp1_yieldvsARIDAndTmax.png"
+    
+    grScale = 2
+    fontRescale = 1
+    
+    png(plotName, width = grScale * 600, height = grScale * 300)
+  }
+  
+  if (imageFormat == "eps")
+  {
+    plotName = "figures/exp1_yieldvsARIDAndTmax.eps"
+    
+    grScale = 2
+    fontRescale = 0.8
+    
+    extrafont::loadfonts(device = "postscript")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 3.5 * grScale,
+                        height = 5 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
+  }
+  
+  print({
+    (ggplot(data = yieldData, aes(y = yield, x = meanARID_grow, color = crop)) +
+       geom_point(size = 1, alpha = 0.3) +
+       geom_smooth(method = 'lm', color = 'black', se = FALSE) +
+       geom_point(data = yieldData_exp0, aes(x = meanARID_grow, y = yield), size = 2, shape = 4, color = 'red') +
+       geom_smooth(data = yieldData_exp0, aes(x = meanARID_grow, y = yield), method = 'lm', color = 'red', se = FALSE, linetype = "dashed") +
+       scale_color_discrete_qualitative(guide = FALSE) +
+       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+       ylab(expression(paste("yield (", g/m^2, ")"))) +
+       xlab("mean ARID") +
+       theme_light(base_size = 11 * grScale) +
+       theme(axis.text = element_text(size = 15 * fontRescale),
+             axis.title = element_text(size = 15 * fontRescale),
+             strip.background = element_rect(fill = "white"),
+             strip.text = element_text(colour = "black"))) +
+      (ggplot(data = yieldData, aes(y = yield, x = meanT_max_grow, color = crop)) +
+         geom_point(size = 1, alpha = 0.3) +
+         geom_smooth(method = 'lm', color = 'black', se = FALSE) +
+         geom_point(data = yieldData_exp0, aes(x = meanT_max_grow, y = yield), size = 2, shape = 4, color = 'red') +
+         geom_smooth(data = yieldData_exp0, aes(x = meanT_max_grow, y = yield), method = 'lm', color = 'red', se = FALSE, linetype = "dashed") +
+         scale_color_discrete_qualitative(guide = FALSE) +
+         facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+         ylab("") +
+         xlab("mean T_max") +
+         theme_light(base_size = 11 * grScale) +
+         theme(axis.text = element_text(size = 15 * fontRescale),
+               axis.title = element_text(size = 15 * fontRescale),
+               strip.background = element_rect(fill = "white"),
+               strip.text = element_text(colour = "black"))) +
+      plot_layout(nrow = 1, widths = c(1, 1))
+  })
+  
+  dev.off()
+}
+rm(imageFormat, grScale)
+```
+
+```{r, out.width = "\\textwidth"}
+knitr::include_graphics(plotName)
+```
+
+Apply random forest to identify ranking of parameters and indicators that best explain variation in yield.
+
+Name parameters to consider:
+
+```{r}
+# those that make sense when considering all crops (includes crop parameters)
+pars_overall <- c(
+  "T_sum", "HI", "I_50A", "I_50B", "T_base", "T_opt", "RUE", 
+  "I_50maxH", "I_50maxW", "T_heat", "T_extreme", "S_water", 
+  "sowingDay", "harvestDay", "meanARID_grow", "meanT_max_grow" 
+)
+# those that make sense to analise variance within each crop (weather-related indicators)
+pars_perCrop <- c(
+  "meanARID_grow", "meanT_max_grow" 
+)
+```
+
+Overall, across crops:
+
+```{r}
+if(!file.exists('randomForestOutputData/randomForest_yield.RData'))
+{
+  randomForest_yield <-
+  randomForest::randomForest(
+    as.formula(paste0("yield ~ ", paste(pars_overall, collapse = '+'))),
+    data = yieldData[complete.cases(yieldData),],
+    mtry = 5,
+    ntree = 1000,
+    importance = T
+  )
+  
+  # save
+  save(randomForest_yield, file = 'randomForestOutputData/randomForest_yield.RData')
+}
+
+# load
+load('randomForestOutputData/randomForest_yield.RData')
+```
+
+Variable importance plot:
+
+```{r}
+randomForest::varImpPlot(randomForest_yield)
+```
+
+NOTE: `sowingDay`is so high in ranking only because proso millet, with its distinct season, returns substantially higher yields than all other crops.
+
+Per each crop:
+
+```{r}
+fileName = paste0('randomForestOutputData/randomForest_yield_perCrop.RData')
+  
+if(!file.exists(fileName))
+{
+  for (aCrop in cropTable$crop)
+  {
+  
+    randomForest_yield[[aCrop]] <-
+      randomForest::randomForest(
+        as.formula(paste0("yield ~ ", paste(pars_perCrop, collapse = '+'))),
+        data = yieldData[yieldData$crop == aCrop & complete.cases(yieldData),],
+        mtry = 4,
+        ntree = 1000,
+        importance = T
+      )
+  }
+  
+  # save
+  save(randomForest_yield, file = fileName)
+}
+# load
+load(fileName)
+```
+
+Variable importance plot:
+
+```{r}
+randomForest::varImpPlot(randomForest_yield[['proso millet']])
 ```
 
 ```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between ARID (x) and Yield (y) per crop")
+randomForest::varImpPlot(randomForest_yield[['pearl millet']])
+```
+
+```{r}
+randomForest::varImpPlot(randomForest_yield[['rice']])
+```
+
+```{r}
+randomForest::varImpPlot(randomForest_yield[['barley']])
+```
+
+```{r}
+randomForest::varImpPlot(randomForest_yield[['wheat 1']])
+```
+
+```{r}
+randomForest::varImpPlot(randomForest_yield[['wheat 2']])
 ```
 
 Clear temporary objects:
 
 ```{r}
-rm(linearModel, linearModels.table, 
-   watbalOutput_rakhigarhi, watbalParameters, soil.FC, soil.WP, 
+rm(watbalOutput_rakhigarhi, watbalParameters, 
    weatherData, weatherData_rakhigarhi, weatherSummary, weatherSummary_rakhigarhi, weatherSummaryNames,
    xhist, yieldData, yieldData_summary,
    yearLengthInDays_real, yearLengthInDays_sim, 
@@ -1881,7 +2314,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp2_ARIDvsPrecipitation.png"
+    plotName = "figures/exp2_ARIDvsPrecipitation.png"
     
     grScale = 2
     cex.points = 1
@@ -1891,21 +2324,18 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp2_ARIDvsPrecipitation.eps"
+    plotName = "figures/exp2_ARIDvsPrecipitation.eps"
     
     grScale = 2
     cex.points = 0.5
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   layout(matrix(c(1, 2, 3, 3), nrow = 2, ncol = 2, byrow = FALSE),
@@ -1978,7 +2408,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp2_ARIDvsPrecipitation_ggplot.png"
+    plotName = "figures/exp2_ARIDvsPrecipitation_ggplot.png"
     
     grScale = 2
     fontRescale = 1
@@ -1988,27 +2418,25 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp2_ARIDvsPrecipitation_ggplot.eps"
+    plotName = "figures/exp2_ARIDvsPrecipitation_ggplot.eps"
     
     grScale = 2
     fontRescale = 0.8
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   print({
     (ggplot(data = yieldData, aes(y = meanARID_grow, x = precipitation_yearlyMean, color = crop)) +
-       geom_point(size = 1) +
-       geom_smooth(method = 'lm') +
+       geom_point(size = 1, alpha = 0.3) +
+       geom_point(data = yieldData_exp0, aes(y = meanARID_grow, x = precipitation_yearlyMean), color = "red", shape = 4) +
+       geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
        scale_color_discrete_qualitative(guide = FALSE) +
        facet_wrap( ~ crop, ncol = 2) +
        ylab("mean ARID") +
@@ -2019,10 +2447,93 @@ for (imageFormat in listOfImageFormats)
              strip.background = element_rect(fill = "white"),
              strip.text = element_text(colour = "black"))) +
       (ggplot(data = yieldData, aes(y = meanARID_grow, x = precipitation_dailyCum_plateauValue_yearlyMean, color = crop)) +
-         geom_point(size = 1) +
-         geom_smooth(method = 'lm') +
+         geom_point(size = 1, alpha = 0.3) +
+         geom_point(data = yieldData_exp0, aes(y = meanARID_grow, x = precipitation_dailyCum_plateauValue_yearlyMean), color = "red", shape = 4) +
+         geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
          scale_color_discrete_qualitative(guide = FALSE) +
          facet_wrap( ~ crop, ncol = 2) +
+         ylab("") +
+         xlab("cumulative daily precipitation plateau value (yearly mean)") +
+         theme_light(base_size = 11 * grScale) +
+         theme(axis.text = element_text(size = 15 * fontRescale),
+               axis.title = element_text(size = 15 * fontRescale),
+               strip.background = element_rect(fill = "white"),
+               strip.text = element_text(colour = "black"))) +
+      plot_layout(nrow = 1, widths = c(1, 1))
+  })
+  
+  dev.off()
+}
+rm(imageFormat, grScale)
+```
+
+```{r, out.width = "\\textwidth"}
+knitr::include_graphics(plotName)
+```
+
+Calculate correlation and linear models fitness (simulated data):
+
+```{r}
+knitr::kable(linearModels.table(yieldData, "meanARID_grow", "precipitation_yearlyMean"), caption = "Pearson's correlation and linear model between precipitation annual sum yearly mean (x) and ARID (y) per crop")
+```
+
+```{r}
+knitr::kable(linearModels.table(yieldData, "meanARID_grow", "precipitation_dailyCum_plateauValue_yearlyMean"), caption = "Pearson's correlation and linear model between cumulative daily precipitation plateau value yearly mean (x) and ARID (y) per crop")
+```
+
+### Fig - Effect of precipitation parametres on yield
+
+Plotting yield vs precipitation yearly mean and seasonal balance (plateau value):
+
+```{r}
+for (imageFormat in listOfImageFormats)
+{
+  if (imageFormat == "png")
+  {
+    plotName = "figures/exp2_yieldvsPrecipitation_ggplot.png"
+    
+    grScale = 2
+    fontRescale = 1
+    
+    png(plotName, width = grScale * 600, height = grScale * 300)
+  }
+  
+  if (imageFormat == "eps")
+  {
+    plotName = "figures/exp2_yieldvsPrecipitation_ggplot.eps"
+    
+    grScale = 2
+    fontRescale = 0.8
+    
+    extrafont::loadfonts(device = "postscript")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 5 * grScale,
+                        height = 3 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
+  }
+  
+  print({
+    (ggplot(data = yieldData, aes(y = yield, x = precipitation_yearlyMean, color = crop)) +
+       geom_point(size = 1, alpha = 0.3) +
+       geom_point(data = yieldData_exp0, aes(y = yield, x = precipitation_yearlyMean), color = "red", shape = 4) +
+       geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+       scale_color_discrete_qualitative(guide = FALSE) +
+       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+       ylab(expression(paste("yield (", g/m^2, ")"))) +
+       xlab("precipitation annual sum (mm) (yearly mean)") +
+       theme_light(base_size = 11 * grScale) +
+       theme(axis.text = element_text(size = 15 * fontRescale),
+             axis.title = element_text(size = 15 * fontRescale),
+             strip.background = element_rect(fill = "white"),
+             strip.text = element_text(colour = "black"))) +
+      (ggplot(data = yieldData, aes(y = yield, x = precipitation_dailyCum_plateauValue_yearlyMean, color = crop)) +
+         geom_point(size = 1, alpha = 0.3) +
+         geom_point(data = yieldData_exp0, aes(y = yield, x = precipitation_dailyCum_plateauValue_yearlyMean), color = "red", shape = 4) +
+         geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+         scale_color_discrete_qualitative(guide = FALSE) +
+         facet_wrap( ~ crop, ncol = 2, scales = 'free') +
          ylab("") +
          xlab("cumulative daily precipitation plateau value (yearly mean)") +
          theme_light(base_size = 11 * grScale) +
@@ -2045,80 +2556,109 @@ knitr::include_graphics(plotName)
 Calculate correlation and linear models fitness:
 
 ```{r}
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
+knitr::kable(linearModels.table(yieldData, "yield", "precipitation_yearlyMean"), caption = "Pearson's correlation and linear model between precipitation annual sum yearly mean (x) and yield (y) per crop")
+```
 
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
+```{r}
+knitr::kable(linearModels.table(yieldData, "yield", "precipitation_dailyCum_plateauValue_yearlyMean"), caption = "Pearson's correlation and linear model between cumulative daily precipitation plateau value yearly mean (x) and yield (y) per crop")
+```
 
-for (aCrop in levels(yieldData$crop))
+### Fig - Effects of precipitation parametres on yield and ARID
+
+```{r}
+for (imageFormat in listOfImageFormats)
 {
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = yieldData$meanARID_grow[yieldData$crop == aCrop], 
-        y = yieldData$precipitation_yearlyMean[yieldData$crop == aCrop], 
-        use = "pairwise.complete.obs")
+  if (imageFormat == "png")
+  {
+    plotName = "figures/exp2_yieldAndARIDvsPrecipitation_ggplot.png"
+    
+    grScale = 2
+    fontRescale = 1
+    
+    png(plotName, width = grScale * 600, height = grScale * 600)
+  }
   
-  linearModel <- lm(meanARID_grow ~ precipitation_yearlyMean, data = yieldData[yieldData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
-}
-rm(aCrop)
-```
-
-```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between precipitation annual sum yearly mean (x) and ARID (y) per crop")
-```
-
-```{r}
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
-
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
-
-for (aCrop in levels(yieldData$crop))
-{
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = yieldData$meanARID_grow[yieldData$crop == aCrop], 
-        y = yieldData$precipitation_dailyCum_plateauValue_yearlyMean[yieldData$crop == aCrop], 
-        use = "pairwise.complete.obs")
+  if (imageFormat == "eps")
+  {
+    plotName = "figures/exp2_yieldAndARIDvsPrecipitation_ggplot.eps"
+    
+    grScale = 2
+    fontRescale = 0.8
+    
+    extrafont::loadfonts(device = "postscript")
+    grDevices::cairo_ps(filename = plotName,
+                        width = 6 * grScale,
+                        height = 6 * grScale,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
+  }
   
-  linearModel <- lm(meanARID_grow ~ precipitation_dailyCum_plateauValue_yearlyMean, data = yieldData[yieldData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
+  print({
+    (ggplot(data = yieldData, aes(y = meanARID_grow, x = precipitation_yearlyMean, color = crop)) +
+       geom_point(size = 1, alpha = 0.3) +
+       geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+       scale_color_discrete_qualitative(guide = FALSE) +
+       facet_wrap( ~ crop, ncol = 2) +
+       ylab("mean ARID") +
+       xlab("") +
+       theme_light(base_size = 11 * grScale) +
+       theme(axis.text = element_text(size = 15 * fontRescale),
+             axis.title = element_text(size = 15 * fontRescale),
+             strip.background = element_rect(fill = "white"),
+             strip.text = element_text(colour = "black"))) +
+      (ggplot(data = yieldData, aes(y = meanARID_grow, x = precipitation_dailyCum_plateauValue_yearlyMean, color = crop)) +
+         geom_point(size = 1, alpha = 0.3) +
+         geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+         scale_color_discrete_qualitative(guide = FALSE) +
+         facet_wrap( ~ crop, ncol = 2) +
+         ylab("") +
+         xlab("") +
+         theme_light(base_size = 11 * grScale) +
+         theme(axis.text = element_text(size = 15 * fontRescale),
+               axis.title = element_text(size = 15 * fontRescale),
+               strip.background = element_rect(fill = "white"),
+               strip.text = element_text(colour = "black"))) +
+      (ggplot(data = yieldData, aes(y = yield, x = precipitation_yearlyMean, color = crop)) +
+       geom_point(size = 1, alpha = 0.3) +
+       geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+       scale_color_discrete_qualitative(guide = FALSE) +
+       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+       ylab(expression(paste("yield (", g/m^2, ")"))) +
+       xlab("precipitation annual sum (mm) (yearly mean)") +
+       theme_light(base_size = 11 * grScale) +
+       theme(axis.text = element_text(size = 15 * fontRescale),
+             axis.title = element_text(size = 15 * fontRescale),
+             strip.background = element_rect(fill = "white"),
+             strip.text = element_text(colour = "black"))) +
+      (ggplot(data = yieldData, aes(y = yield, x = precipitation_dailyCum_plateauValue_yearlyMean, color = crop)) +
+         geom_point(size = 1, alpha = 0.3) +
+         geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
+         scale_color_discrete_qualitative(guide = FALSE) +
+         facet_wrap( ~ crop, ncol = 2, scales = 'free') +
+         ylab("") +
+         xlab("cumulative daily precipitation plateau value (yearly mean)") +
+         theme_light(base_size = 11 * grScale) +
+         theme(axis.text = element_text(size = 15 * fontRescale),
+               axis.title = element_text(size = 15 * fontRescale),
+               strip.background = element_rect(fill = "white"),
+               strip.text = element_text(colour = "black"))) +
+      plot_layout(nrow = 2, ncol = 2, widths = c(1, 1), heights = c(1, 1))
+  })
+  
+  dev.off()
 }
-rm(aCrop)
+rm(imageFormat, grScale)
 ```
 
-```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between cumulative daily precipitation plateau value yearly mean (x) and ARID (y) per crop")
+```{r, out.width = "\\textwidth"}
+knitr::include_graphics(plotName)
 ```
 
 Clear temporary objects:
 
 ```{r}
-rm(linearModel, linearModels.table, 
-   yieldData,
+rm(yieldData,
    maxARID, minARID, maxYield, minYield,
    maxPrecipitation_yearlyMean, minPrecipitation_yearlyMean,
    maxPrecipitation_dailyCum_plateauValue_yearlyMean, minPrecipitation_dailyCum_plateauValue_yearlyMean,
@@ -2393,7 +2933,7 @@ heights = (figHeight/figWidth) * 50 * c(topHeight/figHeight,
 
 lay <- matrix(1:(numberOfColumns * numberOfRows), ncol = numberOfColumns, byrow = TRUE)
 
-png("figures/Fig_terrains.png", width = figWidth, height = figHeight)
+png("figures/terrains.png", width = figWidth, height = figHeight)
 
 gridExtra::grid.arrange(grobs = grobs, 
                         layout_matrix = lay,
@@ -2404,7 +2944,7 @@ dev.off()
 ```
 
 ```{r}
-knitr::include_graphics("figures/Fig_terrains.png")
+knitr::include_graphics("figures/terrains.png")
 ```
 
 Show table with parameter values:
@@ -2701,7 +3241,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp3_yieldSpatialDistribution.png"
+    plotName = "figures/exp3_yieldSpatialDistribution.png"
     
     grScale = 2
     fontRescale = 0
@@ -2711,19 +3251,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp3_yieldSpatialDistribution.eps"
+    plotName = "figures/exp3_yieldSpatialDistribution.eps"
     
     grScale = 1.2
     fontRescale = 0.1
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * (mapGridSize * nColumns) / 100,
                         height = grScale * (mapGridSize * nRows) / 100,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -2848,7 +3386,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = paste0("figures/Fig_exp3_yieldPerTerrainCrop.png")
+    plotName = paste0("figures/exp3_yieldPerTerrainCrop.png")
     
     grScale = 2
     
@@ -2857,18 +3395,16 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp3_yieldPerTerrainCrop.eps"
+    plotName = "figures/exp3_yieldPerTerrainCrop.eps"
     
     grScale = 1.2
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 8,
                         height = grScale * 3,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -2905,7 +3441,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = paste0("figures/Fig_exp3_yieldPerTerrainCrop_river.png")
+    plotName = paste0("figures/exp3_yieldPerTerrainCrop_river.png")
     
     grScale = 2
     
@@ -2914,19 +3450,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp3_yieldPerTerrainCrop_river.eps"
+    plotName = "figures/exp3_yieldPerTerrainCrop_river.eps"
     
     grScale = 1.2
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 8,
                         height = grScale * 3,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
-    )
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )             
   }
   
   print({
@@ -3100,7 +3634,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp4_ARIDvsRiverFlow.png"
+    plotName = "figures/exp4_ARIDvsRiverFlow.png"
     
     grScale = 2
     cex.points = 1
@@ -3110,21 +3644,18 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_ARIDvsRiverFlow.eps"
+    plotName = "figures/exp4_ARIDvsRiverFlow.eps"
     
     grScale = 2
     cex.points = 0.5
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 5 * grScale,
-                          height = 3 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = grScale * 5,
+                        height = grScale * 3,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   layout(matrix(c(1, 2), nrow = 1, ncol = 2, byrow = FALSE),
@@ -3185,7 +3716,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp4_ARIDvsRiverFlow_ggplot.png"
+    plotName = "figures/exp4_ARIDvsRiverFlow_ggplot.png"
     
     grScale = 2
     
@@ -3194,20 +3725,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_ARIDvsRiverFlow_ggplot.eps"
+    plotName = "figures/exp4_ARIDvsRiverFlow_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 3.5 * grScale,
-                          height = 5 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = grScale * 3.5,
+                        height = grScale * 5,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   tempData <- yieldData[hasRiver == "river",]
@@ -3218,8 +3746,8 @@ for (imageFormat in listOfImageFormats)
                                                               keyInCalledTable = parsData$randomSeed, 
                                                               variableInCalledTable = parsData$riverWaterPerFlowAccumulation)), 
            aes(x = riverFlow, y = p_soil_meanARID_grow, color = crop, fill = crop)) +
-      geom_point(size = 1) +
-      geom_smooth(method = 'lm') +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
       scale_color_manual(values = cropColours, name="", guide = FALSE) +
       scale_fill_manual(values = cropColours, name="", guide = FALSE) +
       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
@@ -3247,39 +3775,12 @@ tempData <- cbind(tempData[,c("crop", "p_soil_meanARID_grow")],
                   riverFlow = getRelatedVariableWithKey(keyInCallingTable =  tempData$randomSeed, 
                                                         keyInCalledTable = parsData$randomSeed, 
                                                         variableInCalledTable = parsData$riverWaterPerFlowAccumulation))
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
 
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
-
-for (aCrop in levels(yieldData$crop))
-{
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = tempData$p_soil_meanARID_grow[tempData$crop == aCrop], 
-        y = tempData$riverFlow[tempData$crop == aCrop], 
-        use = "pairwise.complete.obs")
-  
-  linearModel <- lm(p_soil_meanARID_grow ~ riverFlow, data = tempData[tempData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
-}
-rm(aCrop, tempData)
+knitr::kable(linearModels.table(tempData, "p_soil_meanARID_grow", "riverFlow"), caption = "Pearson's correlation and linear model between river flow (x) and ARID (y) per crop")
+rm(tempData)
 ```
 
-```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between river flow (x) and ARID (y) per crop")
-```
+
 
 ### Fig - Effect of river flow on productivity (yield) 
 
@@ -3288,7 +3789,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp4_yieldvsRiverFlow_ggplot.png"
+    plotName = "figures/exp4_yieldvsRiverFlow_ggplot.png"
     
     grScale = 2
     
@@ -3297,20 +3798,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_yieldvsRiverFlow_ggplot.eps"
+    plotName = "figures/exp4_yieldvsRiverFlow_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 3.5 * grScale,
-                          height = 5 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = grScale * 3.5,
+                        height = grScale * 5,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   tempData <- yieldData[hasRiver == "river",]
@@ -3321,8 +3819,8 @@ for (imageFormat in listOfImageFormats)
                                                               keyInCalledTable = parsData$randomSeed, 
                                                               variableInCalledTable = parsData$riverWaterPerFlowAccumulation)), 
            aes(x = riverFlow, y = p_crop_yield, color = crop, fill = crop)) +
-      geom_point(size = 1) +
-      geom_smooth(method = 'lm') +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
       scale_color_manual(values = cropColours, name="", guide = FALSE) +
       scale_fill_manual(values = cropColours, name="", guide = FALSE) +
       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
@@ -3350,38 +3848,10 @@ tempData <- cbind(tempData[,c("crop", "p_crop_yield")],
                   riverFlow = getRelatedVariableWithKey(keyInCallingTable =  tempData$randomSeed, 
                                                         keyInCalledTable = parsData$randomSeed, 
                                                         variableInCalledTable = parsData$riverWaterPerFlowAccumulation))
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
 
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
+knitr::kable(linearModels.table(tempData, "p_crop_yield", "riverFlow"), caption = "Pearson's correlation and linear model between river flow (x) and yield (y) per crop")
 
-for (aCrop in levels(yieldData$crop))
-{
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = tempData$p_crop_yield[tempData$crop == aCrop], 
-        y = tempData$riverFlow[tempData$crop == aCrop], 
-        use = "pairwise.complete.obs")
-  
-  linearModel <- lm(p_crop_yield ~ riverFlow, data = tempData[tempData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
-}
-rm(tempData, aCrop)
-```
-
-```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between river flow (x) and yield (y) per crop")
+rm(temData)
 ```
 
 Effect on total yield: 
@@ -3391,7 +3861,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp4_totalYieldvsRiverFlow_ggplot.png"
+    plotName = "figures/exp4_totalYieldvsRiverFlow_ggplot.png"
     
     grScale = 2
     
@@ -3400,20 +3870,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_totalYieldvsRiverFlow_ggplot.eps"
+    plotName = "figures/exp4_totalYieldvsRiverFlow_ggplot.eps"
     
     grScale = 2
     
     extrafont::loadfonts(device = "postscript")
-    grDevices::postscript(file = plotName,
-                          pointsize = 10,
-                          width = 3.5 * grScale,
-                          height = 5 * grScale,
-                          horizontal = FALSE,
-                          paper = "special",
-                          onefile = FALSE,
-                          family = "sans",
-                          colormodel = "cmyk")
+    grDevices::cairo_ps(filename = plotName,
+                        width = grScale * 3.5,
+                        height = grScale * 5,
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
+    )
   }
   
   tempData <- yieldData[hasRiver == "river",]
@@ -3424,8 +3891,8 @@ for (imageFormat in listOfImageFormats)
                                                               keyInCalledTable = parsData$randomSeed, 
                                                               variableInCalledTable = parsData$riverWaterPerFlowAccumulation)), 
            aes(x = riverFlow, y = p_crop_totalYield, color = crop, fill = crop)) +
-      geom_point(size = 1) +
-      geom_smooth(method = 'lm') +
+      geom_point(size = 1, alpha = 0.3) +
+      geom_smooth(method = 'lm', color = 'black', fill = 'black', se = FALSE) +
       scale_color_manual(values = cropColours, name="", guide = FALSE) +
       scale_fill_manual(values = cropColours, name="", guide = FALSE) +
       facet_wrap( ~ crop, ncol = 2, scales = 'free') +
@@ -3453,38 +3920,10 @@ tempData <- cbind(tempData[,c("crop", "p_crop_totalYield")],
                   riverFlow = getRelatedVariableWithKey(keyInCallingTable =  tempData$randomSeed, 
                                                         keyInCalledTable = parsData$randomSeed, 
                                                         variableInCalledTable = parsData$riverWaterPerFlowAccumulation))
-linearModels.table <- data.frame(
-  levels(yieldData$crop),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop)),
-  numeric(nlevels(yieldData$crop))
-)
 
-names(linearModels.table) <- c("crop", "correlation_Pearson", "intercept", "intercept_p", "speed", "speed_p", "adjrsquared")
+knitr::kable(linearModels.table(tempData, "p_crop_totalYield", "riverFlow"), caption = "Pearson's correlation and linear model between river flow (x) and yield (y) per crop")
 
-for (aCrop in levels(yieldData$crop))
-{
-  linearModels.table$correlation_Pearson[linearModels.table$crop == aCrop] <- 
-    cor(x = tempData$p_crop_totalYield[tempData$crop == aCrop], 
-        y = tempData$riverFlow[tempData$crop == aCrop], 
-        use = "pairwise.complete.obs")
-  
-  linearModel <- lm(p_crop_totalYield ~ riverFlow, data = tempData[tempData$crop == aCrop,])
-
-  linearModels.table$intercept[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,1]
-  linearModels.table$intercept_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[1,4]
-  linearModels.table$speed[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,1]
-  linearModels.table$speed_p[linearModels.table$crop == aCrop] <- summary(linearModel)$coefficients[2,4]
-  linearModels.table$adjrsquared[linearModels.table$crop == aCrop] <- summary(linearModel)$adj.r.squared
-}
-rm(aCrop, tempData)
-```
-
-```{r}
-knitr::kable(linearModels.table, caption = "Pearson's correlation and linear model between river flow (x) and yield (y) per crop")
+rm(tempData)
 ```
 
 ### Fig - production of land units (total yield) per terrain and crop
@@ -3496,7 +3935,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = paste0("figures/Fig_exp4_totalYieldPerTerrainCrop.png")
+    plotName = paste0("figures/exp4_totalYieldPerTerrainCrop.png")
     
     grScale = 2
     
@@ -3505,18 +3944,16 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_yieldPerTerrainCrop.eps"
+    plotName = "figures/exp4_yieldPerTerrainCrop.eps"
     
     grScale = 1.2
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 8,
                         height = grScale * 3,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -3555,7 +3992,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = paste0("figures/Fig_exp4_totalYieldPerTerrainCrop_river.png")
+    plotName = paste0("figures/exp4_totalYieldPerTerrainCrop_river.png")
     
     grScale = 2
     
@@ -3564,18 +4001,16 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_totalYieldPerTerrainAndCrop_river.eps"
+    plotName = "figures/exp4_totalYieldPerTerrainAndCrop_river.eps"
     
     grScale = 1.2
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 8,
                         height = grScale * 3,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -3612,7 +4047,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = paste0("figures/Fig_exp4_totalYieldPerCropAndRiverflow.png")
+    plotName = paste0("figures/exp4_totalYieldPerCropAndRiverflow.png")
     
     grScale = 2
     
@@ -3621,18 +4056,16 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp4_totalYieldPerCropAndRiverflow.eps"
+    plotName = "figures/exp4_totalYieldPerCropAndRiverflow.eps"
     
     grScale = 1.2
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * 4,
                         height = grScale * 5,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
@@ -3677,7 +4110,6 @@ Clear temporary objects:
 
 ```{r, eval=FALSE}
 rm(file_names, nameFilter,
-   linearModel, linearModels.table, 
    yieldData, parsData, hasRiver,
    maxARID, minARID, maxYield, minYield, 
    maxPrecipitation_yearlyMean, minPrecipitation_yearlyMean, 
@@ -3923,7 +4355,7 @@ for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
   {
-    plotName = "figures/Fig_exp5_corTotalYieldFreqSpatialDistribution.png"
+    plotName = "figures/exp5_corTotalYieldFreqSpatialDistribution.png"
     
     grScale = 2
     fontRescale = 0
@@ -3933,19 +4365,17 @@ for (imageFormat in listOfImageFormats)
   
   if (imageFormat == "eps")
   {
-    plotName = "figures/Fig_exp5_corTotalYieldFreqSpatialDistribution.eps"
+    plotName = "figures/exp5_corTotalYieldFreqSpatialDistribution.eps"
     
     grScale = 1.2
     fontRescale = 0.1
     
     extrafont::loadfonts(device = "postscript")
     grDevices::cairo_ps(filename = plotName,
-                        pointsize = 12,
                         width = grScale * (mapGridSize * nColumns) / 100,
                         height = grScale * (mapGridSize * nRows) / 100,
-                        onefile = FALSE,
-                        fallback_resolution = 600,
-                        family = "sans"
+                        pointsize = pointSize,
+                        fallback_resolution = fallbackResolution
     )
   }
   
