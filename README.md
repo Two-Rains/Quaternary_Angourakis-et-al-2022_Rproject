@@ -2,10 +2,11 @@
 # Quaternary_Angourakis-et-al-2021_Rproject
 RStudio project and files associated with the manuscript:
 
-RStudio project and files associated with the article Angourakis et al. (2021) 'The Indus Village model', Quaternary
 **"Weather, land and crops in the Indus Village model. A simulation framework for understanding crop dynamics under under environmental variability in rural settlements of the Indus Civilisation"**
+
 by Angourakis, Andreas; Bates, Jenniffer; Baudouin, Jean-Phillipe; Giesche, Alena; Lightfoot, Emma; Walker, Joanna R.; Ustunkaya, M. Cemre; Wright, Nathan; Singh, Ravindra; Petrie, Cameron
-*Quaternary*
+
+*Quaternary*,
 submitted in 2022
 
 Created with R version 3.6.2.
