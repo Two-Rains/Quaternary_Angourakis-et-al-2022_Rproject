@@ -2,7 +2,7 @@
 # Quaternary_Angourakis-et-al-2022_Rproject
 RStudio project and files associated with the manuscript:
 
-**"Weather, land and crops in the Indus Village model. A simulation framework for understanding crop dynamics under under environmental variability in rural settlements of the Indus Civilisation"**
+**"Weather, land and crops in the Indus Village model: A simulation framework for crop dynamics under environmental variability and climate change in the Indus Civilisation"**
 
 by Angourakis, Andreas; Bates, Jenniffer; Baudouin, Jean-Phillipe; Giesche, Alena; Lightfoot, Emma; Walker, Joanna R.; Ustunkaya, M. Cemre; Wright, Nathan; Singh, Ravindra; Petrie, Cameron
 
