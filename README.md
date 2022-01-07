@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/445487253.svg)](https://zenodo.org/badge/latestdoi/445487253)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5827878.svg)](https://doi.org/10.5281/zenodo.5827878)
 # Quaternary_Angourakis-et-al-2022_Rproject
 RStudio project and files associated with the manuscript:
 
