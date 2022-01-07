@@ -13,4 +13,4 @@ Created with R version 3.6.2.
 See HTML document at: https://andros-spica.github.io/Quaternary_Angourakis-et-al-2022_Rproject/
 
 Cite as:
-Andreas Angourakis. (2022, January). Two-Rains/Quaternary_Angourakis-et-al-2022_Rproject: Supplementary files for Angourakis et al. (2022), Quaternary. Zenodo. http://doi.org/10.5281/zenodo.3712151
+Andreas Angourakis. (2022, January). Two-Rains/Quaternary_Angourakis-et-al-2022_Rproject: Supplementary files for Angourakis et al. (2022), Quaternary. Zenodo.
