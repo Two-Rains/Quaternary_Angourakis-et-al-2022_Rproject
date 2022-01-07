@@ -1,11 +1,11 @@
 ---
-title: "Plots and analyses produced for The Indus Village model (Quaternary 2021)"
+title: "Plots and analyses produced for 'The Weather, land and crops in the Indus Village model' (Quaternary, 2021)"
 author: "Andreas Angourakis"
-date: "29/03/2021"
+date: "07/01/2022"
 output: html_document
 ---
 
-This file and all other referenced in the code can be found at the repository: [https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2021](https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2021)
+This file and all other referenced in the code can be found at the repository: [https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2022](https://github.com/Andros-Spica/Quaternary_Angourakis-et-al-2022)
 
 ## Load packages and define helper functions:
 
@@ -2684,9 +2684,9 @@ figScale = 2
 terrainDim = 450 * figScale
 topHeight = 50 * figScale
 bottomHeight = 150 * figScale
-leftWidth = 100 * figScale
+leftWidth = 150 * figScale
 internalMargin = 5 * figScale
-figWidth = terrainDim * 3 + leftWidth + 2 * internalMargin
+figWidth = terrainDim * 5 + leftWidth + 4 * internalMargin
 figHeight = terrainDim * length(listOfTerrainSeeds) + topHeight + bottomHeight + (length(listOfTerrainSeeds) - 1) * internalMargin
 ```
 
@@ -2698,8 +2698,10 @@ Create margin header images:
 headers <- c("seed",
              "Elevation", 
              "Soil texture",
-             "Soil texture type")
-namesInFile <- c("seed", "elev", "soilText", "soilTextType")
+             "Soil texture type",
+             "Ecological composition",
+             "Cover type")
+namesInFile <- c("seed", "elev", "soilText", "soilTextType", "ecolComp", "coverType")
 
 for (i in 1:length(headers))
 {
@@ -2821,6 +2823,63 @@ for (i in 1:length(soilTextureTypes))
 rm(i)
 
 dev.off()
+
+#======================================================================
+
+
+ecolComp <- c("100% grass", "100% brush", "100% wood")
+ecolComp_colors <- c("red", "green", "blue")
+xy <- list(c(0.2, 1.05), 
+           c(0.2, 0.75), 
+           c(0.2, 0.45))
+
+png("FigTerrains_tempFiles/FigTerrains_legend_ecolComp.PNG", 
+    width = terrainDim, 
+    height = bottomHeight)
+
+par(mar = rep(0, 4))
+
+plot(0:1, 0:1, type = "n", axes = FALSE, ann = FALSE)
+
+for (i in 1:length(ecolComp))
+{
+  legend(xy[[i]][1], xy[[i]][2], 
+         legend = ecolComp[i], 
+         fill = ecolComp_colors[i], 
+         bty = "n", adj = 0.1,
+         cex = figScale * 2.5, pt.cex = figScale * 5)
+}
+rm(i)
+
+dev.off()
+
+#======================================================================
+
+coverTypes <- c("Wood-grass", "shrubland", "woodland")
+coverTypes_colors <- c("#c1c127", "#366d24", "#437c47")
+xy <- list(c(0.2, 1.05), 
+           c(0.2, 0.75), 
+           c(0.2, 0.45))
+
+png("FigTerrains_tempFiles/FigTerrains_legend_coverType.PNG", 
+    width = terrainDim, 
+    height = bottomHeight)
+
+par(mar = rep(0, 4))
+
+plot(0:1, 0:1, type = "n", axes = FALSE, ann = FALSE)
+
+for (i in 1:length(coverTypes))
+{
+  legend(xy[[i]][1], xy[[i]][2], 
+         legend = coverTypes[i], 
+         fill = coverTypes_colors[i], 
+         bty = "n",  adj = 0.1,
+         cex = figScale * 1.8, pt.cex = figScale * 5)
+}
+rm(i)
+
+dev.off()
 ```
 
 Create blank image:
@@ -2843,9 +2902,13 @@ elevTerrains <- paste0("models/terrains/terrain_random_w=50_h=50_a=C#_fill-sinks
 soilTextTerrains <- paste0("models/terrains/terrain_random_w=50_h=50_a=C#_fill-sinks=true_seed=", 
                            listOfTerrainSeeds ,"_soilTexture.PNG")
 soilTextTypeTerrains <- paste0("models/terrains/terrain_random_w=50_h=50_a=C#_fill-sinks=true_seed=", 
-                               listOfTerrainSeeds ,"_soilTextureTypes.PNG")
+                               listOfTerrainSeeds ,"_soilTextureType.PNG")
+ecolCompTerrains <- paste0("models/terrains/terrain_random_w=50_h=50_a=C#_fill-sinks=true_seed=", 
+                               listOfTerrainSeeds ,"_ecolComp.PNG")
+coverTypeTerrains <- paste0("models/terrains/terrain_random_w=50_h=50_a=C#_fill-sinks=true_seed=", 
+                               listOfTerrainSeeds ,"_coverType.PNG")
 
-numberOfColumns = 6
+numberOfColumns = 10
 numberOfRows = 11
 
 # it is important that these plots were saved as "PNG not "png"
@@ -2855,6 +2918,10 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  "FigTerrains_tempFiles/FigTerrains_soilText.PNG",
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  "FigTerrains_tempFiles/FigTerrains_soilTextType.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_ecolComp.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_coverType.PNG",
                  # ---
                  paste0("FigTerrains_tempFiles/FigTerrains_seed=", listOfTerrainSeeds[1], ".PNG"),
                  elevTerrains[1],
@@ -2862,6 +2929,10 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  soilTextTerrains[1],
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  soilTextTypeTerrains[1],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ecolCompTerrains[1],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 coverTypeTerrains[1],
                  # ---
                  rep("FigTerrains_tempFiles/FigTerrains_blank.PNG", numberOfColumns),
                  # ---
@@ -2871,6 +2942,10 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  soilTextTerrains[2],
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  soilTextTypeTerrains[2],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ecolCompTerrains[2],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 coverTypeTerrains[2],
                  # ---
                  rep("FigTerrains_tempFiles/FigTerrains_blank.PNG", numberOfColumns),
                  # ---
@@ -2880,6 +2955,10 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  soilTextTerrains[3],
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  soilTextTypeTerrains[3],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ecolCompTerrains[3],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 coverTypeTerrains[3],
                  # ---
                  rep("FigTerrains_tempFiles/FigTerrains_blank.PNG", numberOfColumns),
                  # ---
@@ -2889,6 +2968,10 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  soilTextTerrains[4],
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  soilTextTypeTerrains[4],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ecolCompTerrains[4],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 coverTypeTerrains[4],
                  # ---
                  rep("FigTerrains_tempFiles/FigTerrains_blank.PNG", numberOfColumns),
                  # ---
@@ -2898,13 +2981,21 @@ listOfPlots <- c("FigTerrains_tempFiles/FigTerrains_seed.PNG",
                  soilTextTerrains[5],
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  soilTextTypeTerrains[5],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ecolCompTerrains[5],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 coverTypeTerrains[5],
                  # ---
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  "FigTerrains_tempFiles/FigTerrains_legend_elev.PNG",
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
                  "FigTerrains_tempFiles/FigTerrains_legend_soilText.PNG",
                  "FigTerrains_tempFiles/FigTerrains_blank.PNG",
-                 "FigTerrains_tempFiles/FigTerrains_legend_soilTextType.PNG"
+                 "FigTerrains_tempFiles/FigTerrains_legend_soilTextType.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_legend_ecolComp.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_legend_coverType.PNG"
                  )
 
 grobs <- lapply(lapply(listOfPlots, png::readPNG), grid::rasterGrob)
@@ -2913,13 +3004,17 @@ grobs <- lapply(lapply(listOfPlots, png::readPNG), grid::rasterGrob)
 Create Figure:
 
 ```{r}
-widths = 50 * c(leftWidth/figWidth,
+widths = 85 * c(leftWidth/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
                 terrainDim/figWidth,
                 internalMargin/figWidth,
                 terrainDim/figWidth,
                 internalMargin/figWidth,
                 terrainDim/figWidth) * figScale
-heights = (figHeight/figWidth) * 50 * c(topHeight/figHeight, 
+heights = (figHeight/figWidth) * 85 * c(topHeight/figHeight, 
                                         terrainDim/figHeight,
                                         internalMargin/figHeight,
                                         terrainDim/figHeight,
@@ -2970,6 +3065,174 @@ knitr::kable(terrainsData,
              format = "html",
              col.names = rep("", 5),
              align = c("l", "c", "c", "c"))
+```
+
+---
+
+## Fig - compare mean ARID of terrains under the same weather conditions
+
+Plot mean ARID as it is displayed in NetLogo for each of the terrains. Terrain seed is now ordered in columns in the plot grid.
+
+NOTE: because we are dealing with images taken in NetLogo beforehand, we re-use several preparation objects, images, and parameters used to plot terrains.
+
+### Loading and preparation
+
+Setting dimensions:
+
+```{r}
+figScale = 2
+terrainDim = 450 * figScale
+
+# increase top margin to give seed labels more space
+topHeight = 75 * figScale
+
+bottomHeight = 150 * figScale
+
+# set equal left (and right) margins
+leftWidth = 50 * figScale
+
+internalMargin = 5 * figScale
+
+# weight is now proportional to the number of terrain seeds, plus internal and external margins
+figWidth = terrainDim * length(listOfTerrainSeeds) + (leftWidth * 2) + (length(listOfTerrainSeeds) - 1) * internalMargin
+
+# height is now set for a single row plus space for the legend (bottomHeight)
+figHeight = terrainDim + topHeight + bottomHeight
+```
+
+### Create separate component images
+
+Create legend image:
+
+Create margin header images:
+
+```{r}
+for (seed in listOfTerrainSeeds)
+{
+  png(paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", seed, ".PNG"), 
+    width = terrainDim, 
+    height = topHeight)
+
+  par(mar = rep(0, 4))
+
+  plot(0:1, 0:1, type = "n", axes = FALSE, ann = FALSE)
+  
+  text(0.5, 0.5, cex = figScale * 5, adj = .5,
+       labels = seed)
+  
+  dev.off()
+}
+rm(seed)
+```
+
+Create legend:
+
+```{r}
+# code converted from NetLogo (maximum = 255)
+ARID <- seq(0, 1, length.out = 10)
+
+png("FigTerrainsARID_input/FigTerrainsARID_legend.PNG", 
+    width = terrainDim, 
+    height = bottomHeight)
+
+par(mar = c(3,1,1,1), cex = figScale * 2)
+
+barplot(rep(100, 10), 
+        col = hsv(0, (1 - 0.8 * ARID), 0.4 + 0.6 * ARID), #rgb(ARID, 0, 0), 
+        border = rgb(ARID, 0, 0),
+        axes = FALSE, space = 0) 
+mtext("min.", side = 1, line = 0.1, adj = 0, cex = figScale * 2)
+mtext("max.", side = 1, line = 0.1, adj = 1, cex = figScale * 2)
+mtext("ARID", side = 1, line = 1.2, adj = .5, cex = figScale * 3)
+
+dev.off()
+```
+
+### Compose final figure
+
+Load input images:
+
+```{r}
+ARIDTerrains <- paste0("FigTerrainsARID_input/I2-integrated-land-crop_randomSeed=0_type-of-experiment=user-defined_terrainRandomSeed=",
+                       listOfTerrainSeeds ,"_step=365.png")
+
+numberOfColumns = 11
+numberOfRows = 3
+
+# it is important that these plots were saved as "PNG not "png"
+listOfPlots <- c(
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", listOfTerrainSeeds[1], ".PNG"),
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", listOfTerrainSeeds[2], ".PNG"),
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", listOfTerrainSeeds[3], ".PNG"),
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", listOfTerrainSeeds[4], ".PNG"),
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 paste0("FigTerrainsARID_input/FigTerrainsARID_seed=", listOfTerrainSeeds[5], ".PNG"),
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 # ---
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ARIDTerrains[1],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ARIDTerrains[2],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ARIDTerrains[3],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ARIDTerrains[4],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 ARIDTerrains[5],
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 # ---
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrainsARID_input/FigTerrainsARID_legend.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG",
+                 "FigTerrains_tempFiles/FigTerrains_blank.PNG"
+                 )
+
+grobs <- lapply(lapply(listOfPlots, png::readPNG), grid::rasterGrob)
+```
+
+Create Figure:
+
+```{r}
+widths = 85 * c(internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth,
+                terrainDim/figWidth,
+                internalMargin/figWidth) * figScale
+heights = (figHeight/figWidth) * 85 * c(topHeight/figHeight, 
+                                        terrainDim/figHeight,
+                                        bottomHeight/figHeight) * figScale
+
+lay <- matrix(1:(numberOfColumns * numberOfRows), ncol = numberOfColumns, byrow = TRUE)
+
+png("figures/exp3_ARIDComparison.png", width = figWidth, height = figHeight)
+
+gridExtra::grid.arrange(grobs = grobs, 
+                        layout_matrix = lay,
+                        widths = unit(widths, "cm"),
+                        heights = unit(heights, "cm"))
+
+dev.off()
+```
+
+```{r}
+knitr::include_graphics("figures/exp3_ARIDComparison.png")
 ```
 
 Clear temporary objects:
@@ -3230,7 +3493,7 @@ bottomMargin = mapGridSize / 2
 nColumns = length(meanYield_byPosCropAndTerrain) + 2
 nRows = length(meanYield_byPosCropAndTerrain[[1]]) + 2
 
-rowNamesInMargin <- c("seed", gsub(" ", "\n", levels(cropTable$crop)), "total")
+rowNamesInMargin <- c("", gsub(" ", "\n", levels(cropTable$crop)), "total")
 
 leftMarginTextSize = 1.5
 topMarginTextSize = 1.2
@@ -4344,7 +4607,7 @@ bottomMargin = mapGridSize / 10
 nColumns = length(corTotalYieldFreq_byPosCropAndTerrain) + 2
 nRows = length(corTotalYieldFreq_byPosCropAndTerrain[[1]]) + 2
 
-rowNamesInMargin <- c("seed", gsub(" ", "\n", levels(cropTable$crop)))
+rowNamesInMargin <- c("", gsub(" ", "\n", levels(cropTable$crop)))
 
 leftMarginTextSize = 1.5
 topMarginTextSize = 1.2
