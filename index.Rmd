@@ -4306,6 +4306,7 @@ knitr::include_graphics(plotName)
 ### Fig - production of land units (total yield) in terrain 35 per crop and explored value of `riverWaterPerFlowAccumulation` 
 
 ```{r}
+require(scales)
 for (imageFormat in listOfImageFormats)
 {
   if (imageFormat == "png")
@@ -4337,9 +4338,12 @@ for (imageFormat in listOfImageFormats)
   tempData$riverFlow <- getRelatedVariableWithKey(keyInCallingTable =  tempData$randomSeed, 
                                                   keyInCalledTable = parsData$randomSeed, 
                                                   variableInCalledTable = parsData$riverWaterPerFlowAccumulation)
-  
-  tempData$riverFlow <- factor(formatC(tempData$riverFlow, digits = 2, format = "e"), 
-                               levels = formatC(sort(unique(parsData$riverWaterPerFlowAccumulation)), digits = 2, format = "e"))
+  tempData$riverFlow <- signif(tempData$riverFlow * 10^5, digits = 4) 
+  tempData$riverFlow <- factor(tempData$riverFlow, 
+                               levels = sort(unique(signif(parsData$riverWaterPerFlowAccumulation * 10^5, digits = 4))))
+  #tempData$riverFlow <- factor(formatC(tempData$riverFlow, digits = 2, format = "e"), 
+  #                             levels = formatC(sort(unique(parsData$riverWaterPerFlowAccumulation)), digits = 2, format = "e"))
+  riverFlowLevels <- levels(tempData$riverFlow)
   
   print({
     ggplot(data = tempData,
@@ -4347,6 +4351,7 @@ for (imageFormat in listOfImageFormats)
       geom_violin(position = "dodge") +
       #geom_boxplot() +
       scale_fill_discrete_sequential(name = expression(paste("river flow (mm/", m^2, ")")),
+                                     labels = as.expression(sapply(riverFlowLevels, function(x) bquote(.(x) * "x" * 10^-5))),
                                      guide = guide_legend(reverse = TRUE)) +
       scale_x_discrete() + 
       facet_wrap( ~ crop, scales = 'free', ncol = 1) +
@@ -4377,7 +4382,7 @@ rm(file_names, nameFilter,
    maxARID, minARID, maxYield, minYield, 
    maxPrecipitation_yearlyMean, minPrecipitation_yearlyMean, 
    maxPrecipitation_dailyCum_plateauValue_yearlyMean, minPrecipitation_dailyCum_plateauValue_yearlyMean,
-   maxRiverWater, minRiverWater,
+   maxRiverWater, minRiverWater, riverFlowLevels,
    plotName)
 ```
 
@@ -4718,7 +4723,9 @@ for (imageFormat in listOfImageFormats)
             border = hcl.colors(numBarsInLegend, "YlOrRd", rev = TRUE),
             axes = FALSE, space = 0, horiz = TRUE)
     axis(side = 4, at = (0.5):(numBarsInLegend - 0.5),
-         labels = round(seq(from = cropwiseRange[[aCrop]][1], to = cropwiseRange[[aCrop]][2], length.out = numBarsInLegend), 1),
+         labels = gsub("-", "\U2212", as.character(
+           round(seq(from = cropwiseRange[[aCrop]][1], to = cropwiseRange[[aCrop]][2], length.out = numBarsInLegend), 1)
+           )),
          cex.axis = 1, las = 1)
   }
   
